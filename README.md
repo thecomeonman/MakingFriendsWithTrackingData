@@ -47,7 +47,15 @@ The code
     # getting a random slice
     # basically, a row from the tracking data
     # you can choose to pick your own slice
-    dtTrackingSlice = dtData[!is.na(HomeBallX)][ sample(.N, 1) ]
+    dtTrackingSlice = dtData[ 
+       Frame <= ( sample( Frame[which(Subtype == "ON TARGET-GOAL")], 1) + 25 )
+       # Frame <= ( sample( Frame[which(HomePlayer8X > 125)], 1) + 25 )
+       
+    ][
+       Frame >= max(Frame) - 100
+    ][
+       # Frame <= max(Frame) - 30
+    ]
 
     # minimal tracking slice example if you don't want to run the whole file
     if ( F ) {
@@ -81,15 +89,38 @@ The code
 
     }
 
-    pVoronoi = fDrawVoronoiFromTable(
-       dtTrackingSlice,
+    voronoiOutput = fDrawVoronoiFromTable(
+       dtTrackingSlice[1],
        nXLimit = nXLimit,
-       nYlimit = nYlimit
+       nYlimit = nYlimit,
+       UseOneFrameEvery = 1
     )
 
-    plot(pVoronoi)
+    print(voronoiOutput)
 
 ![](README_files/figure-markdown_strict/PlottingASlice-1.png)
+
+    voronoiOutput = fDrawVoronoiFromTable(
+       dtTrackingSlice,
+       nXLimit = nXLimit,
+       nYlimit = nYlimit,
+       UseOneFrameEvery = 4
+    )
+
+    if ( !interactive() ) {
+       
+       file.copy(
+          voronoiOutput,
+          './README_files/figure-markdown_strict/Voronoi.gif'
+       )
+       
+    }
+
+![](./README_files/figure-markdown_strict/Voronoi.gif)
+
+I delibrately left that bit there where the player goes outside the
+pitch. I don’t know what is the best strategy to depict that.
+Suggestions welcome.
 
 Next steps
 ----------
