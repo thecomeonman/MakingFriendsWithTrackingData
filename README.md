@@ -34,7 +34,7 @@ The code
     nYLimit = 80
 
     # loading the data in
-    dtData = fParseTrackingDataBothTeams(
+    lData = fParseTrackingDataBothTeams(
        cRootPath = cDataRootFolder,
        cGameName = cGameName,
        nXLimit = nXLimit,
@@ -47,73 +47,60 @@ The code
     # getting a random slice
     # basically, a row from the tracking data
     # you can choose to pick your own slice
-    dtTrackingSlice = dtData[ 
-       Frame <= ( sample( Frame[which(Subtype == "ON TARGET-GOAL")], 1) + 25 )
-       # Frame <= ( sample( Frame[which(HomePlayer8X > 125)], 1) + 25 )
-       
+
+    dtEventSlice = lData$dtEventsData[
+       # Frame == ( sample( Frame[which(Subtype == "ON TARGET-GOAL")], 1) )
+       StartFrame == 99032
+    ]
+
+    dtTrackingSlice = lData$dtTrackingData[ 
+       # Frame <= ( sample( Frame[which(Subtype == "ON TARGET-GOAL")], 1) + 25 )
+       Frame <= dtEventSlice[, StartFrame + 25]
     ][
-       Frame >= max(Frame) - 100
+       Frame >= max(Frame) - 125
     ][
        # Frame <= max(Frame) - 30
     ]
 
-    # minimal tracking slice example if you don't want to run the whole file
-    if ( F ) {
+    dtEventSlice = lData$dtEventsData[
+       StartFrame %in% dtTrackingSlice[, Frame] &
+       EndFrame %in% dtTrackingSlice[, Frame]
+    ]
 
-       dtTrackingSlice = data.table(
-          # Period = 1,
-          Frame = 4431,
-          # Time_s = 177.24,
-          # Team = 'Home',
-          # Type = 'Pass',
-          # Subtype = '',
-          # EndFrame = 1,
-          # EndTime_s = 1,
-          # From = 'HomePlayer1X',
-          # From = 'AwayPlayer1X',
-          HomePlayer1X = nXLimit * runif(1),
-          HomePlayer2X = nXLimit * runif(1),
-          HomePlayer3X = nXLimit * runif(1),
-          HomePlayer1Y = nYLimit * runif(1),
-          HomePlayer2Y = nYLimit * runif(1),
-          HomePlayer3Y = nYLimit * runif(1),
-          AwayPlayer1X = nXLimit * runif(1),
-          AwayPlayer2X = nXLimit * runif(1),
-          AwayPlayer3X = nXLimit * runif(1),
-          AwayPlayer1Y = nYLimit * runif(1),
-          AwayPlayer2Y = nYLimit * runif(1),
-          AwayPlayer3Y = nYLimit * runif(1),
-          BallX = nXLimit * runif(1),
-          BallY = nYLimit * runif(1)
-       )
-
-    }
 
     voronoiOutput = fDrawVoronoiFromTable(
-       dtTrackingSlice[1],
+       dtTrackingSlice[Frame == min(Frame)],
        nXLimit = nXLimit,
-       nYlimit = nYlimit,
-       UseOneFrameEvery = 1
+       nYLimit = nYLimit
     )
 
     print(voronoiOutput)
 
 ![](README_files/figure-markdown_strict/PlottingASlice-1.png)
 
+
     voronoiOutput = fDrawVoronoiFromTable(
-       dtTrackingSlice,
-       nXLimit = nXLimit,
-       nYlimit = nYlimit,
-       UseOneFrameEvery = 4
+        dtTrackingSlice,
+        nXLimit = nXLimit,
+        nYLimit = nYLimit,
+        UseOneFrameEvery = 1,
+        DelayBetweenFrames = 5
     )
 
     if ( !interactive() ) {
-       
-       file.copy(
-          voronoiOutput,
-          './README_files/figure-markdown_strict/Voronoi.gif'
-       )
-       
+        
+        qwe = suppressWarnings(
+            file.remove('./README_files/figure-markdown_strict/Voronoi.gif')
+        )
+        rm(qwe)
+
+        qwe = file.copy(
+            voronoiOutput,
+            './README_files/figure-markdown_strict/Voronoi.gif'
+        )
+
+        rm(qwe)
+        
     }
 
 ![](./README_files/figure-markdown_strict/Voronoi.gif)
@@ -121,6 +108,55 @@ The code
 I delibrately left that bit there where the player goes outside the
 pitch. I don’t know what is the best strategy to depict that.
 Suggestions welcome.
+
+What about adding some annotations?
+
+
+    voronoiOutput = fDrawVoronoiFromTable(
+        dtTrackingSlice,
+        nXLimit = nXLimit,
+        nYLimit = nYLimit,
+        UseOneFrameEvery = 1,
+        DelayBetweenFrames = 5,
+        markTrajectoryFor = c(
+            'HomePlayer5',
+            'HomePlayer4',
+            'AwayPlayer17'
+        ),
+        markOffsideLineFor = list(
+            c('Away', 'AwayPlayer25', min)
+        ),
+        markLineBetween = list(
+            c('HomePlayer4','AwayPlayer17')
+        )
+    )
+
+    if ( !interactive() ) {
+        
+        qwe = suppressWarnings(
+            file.remove('./README_files/figure-markdown_strict/Voronoi.gif')
+        )
+        rm(qwe)
+
+        qwe = file.copy(
+            voronoiOutput,
+            './README_files/figure-markdown_strict/VoronoiAnnotated.gif'
+        )
+
+        rm(qwe)
+    
+    }
+
+
+![](./README_files/figure-markdown_strict/VoronoiAnnotated.gif)
+
+What’s the line that the defense is holding?
+
+Could the player making the cross have gotten closed quicker to prevent
+the cross from happening?
+
+Note how the recipient of the cross is in an offside position but
+recovers in time for the cross.
 
 Next steps
 ----------
