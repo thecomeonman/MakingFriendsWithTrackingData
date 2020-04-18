@@ -4,20 +4,11 @@ output: md_document
 
 ## Before you begin:
 
-Before attempting to run this code , you will need to install the CodaBonito 
-library, run the lines below in your R console and that should hopefully be it -
-`install.packages("devtools");`
-`library(devtools);`
-`install_github("thecomeonman/CodaBonito");`
-
-You will also need to install data.table and ggplot2, which can be installed
-off of CRAN - 
-`install.packages(c('data.table','ggplot2'))`
+Before attempting to run this code, follow the instructions at 
+https://github.com/thecomeonman/CodaBonito to install some dependencies.
 
 Also get the tracking data, recently made public as part of the Friends of 
 Tracking sessions by Metrica from here - https://github.com/metrica-sports/sample-data
-
-You're good to go now
 
 ## The code
 
