@@ -1,3 +1,5 @@
+# pretty much a copy of https://github.com/Friends-of-Tracking-Data-FoTD/LaurieOnTracking/blob/master/Lesson6.py
+
 rm(list = ls())
 
 library(CodaBonito)
@@ -198,241 +200,261 @@ n_grid_cells_x = 49
 vnXArray = seq(0, nXLimit, nXLimit/n_grid_cells_x)
 vnYArray = seq(0, nYLimit, nYLimit / round(nYLimit / ( nXLimit/n_grid_cells_x )))
 
+cTempDir = tempdir()
+dir.create(cTempDir)
 dtPitchControlProbabilities = rbindlist(
    lapply(
       0:(length(vnXArray)-1),
       # vnXArray[16],
       function( j ) {
 
-         dtProbability = rbindlist(
-            lapply(
-               0:(length(vnYArray)-1),
-               # vnYArray[16],
-               function( i ) {
+         cFileName = paste0(
+            cTempDir,
+            '/PitchControlProbability',
+            j,
+            '.Rdata'
+         )
 
-                  # i=0;j=4
+         if ( file.exists(cFileName) ) {
+            load(cFileName)
+         } else {
 
-                  target_position = c()
-                  target_position['x'] = vnXArray[j + 1]
-                  target_position['y'] = vnYArray[i + 1]
+            dtProbability = rbindlist(
+               lapply(
+                  0:(length(vnYArray)-1),
+                  # vnYArray[16],
+                  function( i ) {
 
-                  # print(target_position)
-                  print(
-                     paste0(
-                        'i=',i,';j=',j
-                     )
-                  )
+                     # i=0;j=4
 
-                  # ball travel time is distance to target position from current ball position divided assumed average ball speed
-                  ball_travel_time = sqrt(
-                     ( ( target_position['x'] - lData$dtEventsData[StartFrame == iFrame, EventStartX] ) ^ 2 ) +
-                     ( ( target_position['y'] - lData$dtEventsData[StartFrame == iFrame, EventStartY] ) ^ 2 )
-                     # ( ( target_position['x'] - dtTrackingSlice[Player == 'Ball', X] ) ^ 2 ) +
-                     # ( ( target_position['y'] - dtTrackingSlice[Player == 'Ball', Y]) ^ 2 )
-                  ) / params['average_ball_speed']
-                  ball_travel_time = unname(ball_travel_time)
+                     target_position = c()
+                     target_position['x'] = vnXArray[j + 1]
+                     target_position['y'] = vnYArray[i + 1]
 
-                  # first get arrival time of 'nearest' attacking player (nearest also dependent on current velocity)
-                  for ( i in seq(nrow(dtTrackingSlice)) ) {
-
-                     dtTrackingSlice[
-                        i,
-                        time_to_intercept := simple_time_to_intercept(
-                           reaction_time = params['reaction_time'],
-                           VelocityX = VelocityX,
-                           VelocityY = VelocityY,
-                           position_x = X,
-                           position_y = Y,
-                           vmax = params['max_player_speed'],
-                           r_final = target_position
+                     # print(target_position)
+                     print(
+                        paste0(
+                           'i=',i,';j=',j
                         )
-                     ]
-
-                  }
-
-                  tau_min_def = dtTrackingSlice[
-                     Tag == cDefendingTeam, min(time_to_intercept)
-                  ]
-
-                  tau_min_att = dtTrackingSlice[
-                     Tag == cAttackingTeam, min(time_to_intercept)
-                  ]
-
-                  if ( tau_min_att - max(ball_travel_time, tau_min_def) >= params['time_to_control_def'] ) {
-                     # if defending team can arrive significantly before attacking team, no need to solve pitch control model
-
-
-                     dtProbability = data.table(
-                        TargetX = target_position['x'],
-                        TargetY = target_position['y'],
-                        AttackProbability = 0,
-                        DefenseProbability = 1
                      )
 
-                  } else if ( tau_min_def - max(ball_travel_time,tau_min_att) >= params['time_to_control_att'] ) {
-                     # if attacking team can arrive significantly before defending team, no need to solve pitch control model
+                     # ball travel time is distance to target position from current ball position divided assumed average ball speed
+                     ball_travel_time = sqrt(
+                        ( ( target_position['x'] - lData$dtEventsData[StartFrame == iFrame, EventStartX] ) ^ 2 ) +
+                        ( ( target_position['y'] - lData$dtEventsData[StartFrame == iFrame, EventStartY] ) ^ 2 )
+                        # ( ( target_position['x'] - dtTrackingSlice[Player == 'Ball', X] ) ^ 2 ) +
+                        # ( ( target_position['y'] - dtTrackingSlice[Player == 'Ball', Y]) ^ 2 )
+                     ) / params['average_ball_speed']
+                     ball_travel_time = unname(ball_travel_time)
 
+                     # first get arrival time of 'nearest' attacking player (nearest also dependent on current velocity)
+                     for ( i in seq(nrow(dtTrackingSlice)) ) {
 
-                     dtProbability = data.table(
-                        TargetX = target_position['x'],
-                        TargetY = target_position['y'],
-                        AttackProbability = 1,
-                        DefenseProbability = 0
-                     )
-
-                  } else {
-
-                     attacking_players = dtTrackingSlice[
-                        Tag == cAttackingTeam &
-                        time_to_intercept - tau_min_att < params['time_to_control_att'],
-                        Player
-                     ]
-
-                     defending_players = dtTrackingSlice[
-                        Tag == cDefendingTeam &
-                        time_to_intercept - tau_min_def < params['time_to_control_def'],
-                        Player
-                     ]
-
-                     dT_array = seq(
-                         ball_travel_time - params['int_dt'],
-                         ball_travel_time + params['max_int_time'] - params['int_dt'],
-                         params['int_dt']
-                     )
-
-                     PPCFatt = rep(0, length(dT_array))
-                     PPCFdef = rep(0, length(dT_array))
-
-                     ptot = 0.0
-                     i = 2
-
-                     dtTrackingSlice[, PPCF := 0]
-
-                     repeat {
-
-                        if ( !(1 - ptot > params['model_converge_tol'] & i <= length(dT_array) ) ) {
-                           break
-                        }
-
-                        Time = dT_array[i]
-
-                        for ( player in attacking_players ) {
-
-                           # calculate ball control probablity for 'player' in time interval T+dt
-                           dPPCFdT = ( 1 - PPCFatt[i-1] - PPCFdef[i-1] ) *
-                              probability_intercept_ball(
-                                 params['tti_sigma'],
-                                 dtTrackingSlice[Player == player, time_to_intercept],
-                                 Time
-                              ) *
-                              params['lambda_att']
-                           # print(dPPCFdT)
-
-
-                           # make sure it's greater than zero
-                           dPPCFdT = pmax(dPPCFdT, 0)
-                           dtTrackingSlice[
-                              player == Player,
-                              PPCF := PPCF + ( dPPCFdT * params['int_dt'] )
-                           ] # total contribution from individual player
-
-                           PPCFatt[i] = PPCFatt[i] +
-                              dtTrackingSlice[
-                                 player == Player,
-                                 PPCF
-                              ] # add to sum over players in the attacking team (remembering array element is zero at the start of each integration iteration)
-
-                        }
-
-                        for ( player in defending_players ) {
-
-                           # calculate ball control probablity for 'player' in time interval T+dt
-                           dPPCFdT = ( 1 - PPCFatt[i-1] - PPCFdef[i-1] ) *
-                              probability_intercept_ball(
-                                 params['tti_sigma'],
-                                 dtTrackingSlice[Player == player, time_to_intercept],
-                                 Time
-                              ) *
-                              params['lambda_def']
-
-                           # make sure it's greater than zero
-                           dPPCFdT = pmax(dPPCFdT, 0)
-                           dtTrackingSlice[
-                              player == Player,
-                              PPCF := PPCF + ( dPPCFdT * params['int_dt'] )
-                           ] # total contribution from individual player
-
-                           PPCFdef[i] = PPCFdef[i] +
-                              dtTrackingSlice[
-                                 player == Player,
-                                 PPCF
-                              ] # add to sum over players in the attacking team (remembering array element is zero at the start of each integration iteration)
-
-                        }
-
-                        ptot = PPCFdef[i] + PPCFatt[i] # total pitch control probability
-                        i = i + 1
-
-                     }
-
-
-                     if ( i > length(dT_array) ) {
-
-                        print(PPCFatt)
-                        print(PPCFdef)
-
-                        warning(
-                           paste0(
-                              "Integration failed to converge:",
-                              ptot
+                        dtTrackingSlice[
+                           i,
+                           time_to_intercept := simple_time_to_intercept(
+                              reaction_time = params['reaction_time'],
+                              VelocityX = VelocityX,
+                              VelocityY = VelocityY,
+                              position_x = X,
+                              position_y = Y,
+                              vmax = params['max_player_speed'],
+                              r_final = target_position
                            )
+                        ]
+
+                     }
+
+                     tau_min_def = dtTrackingSlice[
+                        Tag == cDefendingTeam, min(time_to_intercept)
+                     ]
+
+                     tau_min_att = dtTrackingSlice[
+                        Tag == cAttackingTeam, min(time_to_intercept)
+                     ]
+
+                     if ( tau_min_att - max(ball_travel_time, tau_min_def) >= params['time_to_control_def'] ) {
+                        # if defending team can arrive significantly before attacking team, no need to solve pitch control model
+
+
+                        dtProbability = data.table(
+                           TargetX = target_position['x'],
+                           TargetY = target_position['y'],
+                           AttackProbability = 0,
+                           DefenseProbability = 1
                         )
 
-                        stop()
+                     } else if ( tau_min_def - max(ball_travel_time,tau_min_att) >= params['time_to_control_att'] ) {
+                        # if attacking team can arrive significantly before defending team, no need to solve pitch control model
 
+
+                        dtProbability = data.table(
+                           TargetX = target_position['x'],
+                           TargetY = target_position['y'],
+                           AttackProbability = 1,
+                           DefenseProbability = 0
+                        )
+
+                     } else {
+
+                        attacking_players = dtTrackingSlice[
+                           Tag == cAttackingTeam &
+                           time_to_intercept - tau_min_att < params['time_to_control_att'],
+                           Player
+                        ]
+
+                        defending_players = dtTrackingSlice[
+                           Tag == cDefendingTeam &
+                           time_to_intercept - tau_min_def < params['time_to_control_def'],
+                           Player
+                        ]
+
+                        dT_array = seq(
+                            ball_travel_time - params['int_dt'],
+                            ball_travel_time + params['max_int_time'] - params['int_dt'],
+                            params['int_dt']
+                        )
+
+                        PPCFatt = rep(0, length(dT_array))
+                        PPCFdef = rep(0, length(dT_array))
+
+                        ptot = 0.0
+                        i = 2
+
+                        dtTrackingSlice[, PPCF := 0]
+
+                        repeat {
+
+                           if ( !(1 - ptot > params['model_converge_tol'] & i <= length(dT_array) ) ) {
+                              break
+                           }
+
+                           Time = dT_array[i]
+
+                           for ( player in attacking_players ) {
+
+                              # calculate ball control probablity for 'player' in time interval T+dt
+                              dPPCFdT = ( 1 - PPCFatt[i-1] - PPCFdef[i-1] ) *
+                                 probability_intercept_ball(
+                                    params['tti_sigma'],
+                                    dtTrackingSlice[Player == player, time_to_intercept],
+                                    Time
+                                 ) *
+                                 params['lambda_att']
+                              # print(dPPCFdT)
+
+
+                              # make sure it's greater than zero
+                              dPPCFdT = pmax(dPPCFdT, 0)
+                              dtTrackingSlice[
+                                 player == Player,
+                                 PPCF := PPCF + ( dPPCFdT * params['int_dt'] )
+                              ] # total contribution from individual player
+
+                              PPCFatt[i] = PPCFatt[i] +
+                                 dtTrackingSlice[
+                                    player == Player,
+                                    PPCF
+                                 ] # add to sum over players in the attacking team (remembering array element is zero at the start of each integration iteration)
+
+                           }
+
+                           for ( player in defending_players ) {
+
+                              # calculate ball control probablity for 'player' in time interval T+dt
+                              dPPCFdT = ( 1 - PPCFatt[i-1] - PPCFdef[i-1] ) *
+                                 probability_intercept_ball(
+                                    params['tti_sigma'],
+                                    dtTrackingSlice[Player == player, time_to_intercept],
+                                    Time
+                                 ) *
+                                 params['lambda_def']
+
+                              # make sure it's greater than zero
+                              dPPCFdT = pmax(dPPCFdT, 0)
+                              dtTrackingSlice[
+                                 player == Player,
+                                 PPCF := PPCF + ( dPPCFdT * params['int_dt'] )
+                              ] # total contribution from individual player
+
+                              PPCFdef[i] = PPCFdef[i] +
+                                 dtTrackingSlice[
+                                    player == Player,
+                                    PPCF
+                                 ] # add to sum over players in the attacking team (remembering array element is zero at the start of each integration iteration)
+
+                           }
+
+                           ptot = PPCFdef[i] + PPCFatt[i] # total pitch control probability
+                           i = i + 1
+
+                        }
+
+
+                        if ( i > length(dT_array) ) {
+
+                           print(PPCFatt)
+                           print(PPCFdef)
+
+                           warning(
+                              paste0(
+                                 "Integration failed to converge:",
+                                 ptot
+                              )
+                           )
+
+                           stop()
+
+                        }
+
+                        if ( ptot > 1 + params['model_converge_tol'] ) {
+                           warning('ptot is weird')
+                           stop()
+                        }
+
+                        dtProbability = data.table(
+                           TargetX = target_position['x'],
+                           TargetY = target_position['y'],
+                           AttackProbability = PPCFatt[i-1],
+                           DefenseProbability = PPCFdef[i-1]
+                        )
+
+                        print(dtProbability)
+                        print(ptot)
+                        print('-------------------')
+
+                        dtTrackingSlice[, PPCF := NULL]
+                        rm(player)
+                        rm(ptot)
+                        rm(PPCFatt)
+                        rm(PPCFdef)
+                        rm(attacking_players)
+                        rm(ball_travel_time)
+                        rm(dPPCFdT)
+                        rm(defending_players)
+                        rm(dT_array)
+                        rm(i)
+                        rm(j)
+                        rm(time_to_intercept)
+                        rm(target_position)
+                        rm(TargetY)
+                        rm(TargetY)
+                        rm(tau_min_def)
+                        rm(tau_min_att)
+                        rm(ball_travel_time)
                      }
 
-                     if ( ptot > 1 + params['model_converge_tol'] ) {
-                        warning('ptot is weird')
-                        stop()
-                     }
+                     dtProbability
 
-                     dtProbability = data.table(
-                        TargetX = target_position['x'],
-                        TargetY = target_position['y'],
-                        AttackProbability = PPCFatt[i-1],
-                        DefenseProbability = PPCFdef[i-1]
-                     )
-
-                     print(dtProbability)
-                     print(ptot)
-                     print('-------------------')
-
-                     dtTrackingSlice[, PPCF := NULL]
-                     rm(player)
-                     rm(ptot)
-                     rm(PPCFatt)
-                     rm(PPCFdef)
-                     rm(attacking_players)
-                     rm(ball_travel_time)
-                     rm(dPPCFdT)
-                     rm(defending_players)
-                     rm(dT_array)
-                     rm(i)
-                     rm(j)
-                     rm(time_to_intercept)
-                     rm(target_position)
-                     rm(TargetY)
-                     rm(TargetY)
-                     rm(tau_min_def)
-                     rm(tau_min_att)
-                     rm(ball_travel_time)
                   }
-
-                  dtProbability
-
-               }
+               )
             )
+
+         }
+
+         save(
+            dtProbability,
+            file = cFileName
          )
 
          dtProbability
@@ -441,7 +463,7 @@ dtPitchControlProbabilities = rbindlist(
    )
 )
 
-ggplot() +
+p1 = ggplot() +
    geom_tile(
       data = dtPitchControlProbabilities,
       aes(
@@ -450,6 +472,35 @@ ggplot() +
          fill =  AttackProbability
       )
    ) +
+   geom_point(
+      data = dtTrackingSlice[Player != 'Ball'],
+      aes(x = X, y = Y, color = Tag),
+      size = 3
+   ) +
+   # geom_text(aes(x = X, y = Y, label = Player)) +
+   # geom_segment(
+   #    data = lData$dtEventsData[StartFrame == iFrame],
+   #    aes(
+   #       x = EventStartX,
+   #       y = EventStartY,
+   #       xend = EventEndX,
+   #       yend = EventEndY
+   #    )
+   # ) +
    scale_fill_gradient2(
        low = 'red', mid = 'white', high = 'blue', midpoint = 0.5
+   ) +
+   scale_color_manual(
+      values = c('Home' = 'red','Ball' = 'black','Away' = 'blue'),
+      guide = FALSE
    )
+
+p1 = fAddPitchLines(
+   p1,
+   nXLimit = nXLimit,
+   nYLimit = nYLimit,
+   cLineColour = 'black',
+   cPitchColour = NA
+)
+
+print(p1)
