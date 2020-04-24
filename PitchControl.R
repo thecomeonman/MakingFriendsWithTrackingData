@@ -8,17 +8,68 @@ library(data.table)
 library(scales)
 theme_set(theme_bw(12))
 
-cDataRootFolder = '/media/ask/Data/Personal/Projects/Personal/sample-data/data/'
-cGameName = 'Sample_Game_2'
-nXLimit = 106
-nYLimit = 68
-nMovingCutoff = 2
-nRunningCutoff = 2
-nUpperLimitSpeed = 15
-iFrame = 52871
+################################################################################
+# user parms
+################################################################################
+{
+
+   # path details to read the data
+   cDataRootFolder = '/media/ask/Data/Personal/Projects/Personal/sample-data/data/'
+   cGameName = 'Sample_Game_2'
+
+   # pitch dimensions
+   nXLimit = 106
+   nYLimit = 68
+
+   # upper limit of speed to cap weird speed values
+   nUpperLimitSpeed = 10
+
+   # which frame you want to calculate the probabilities for
+   iFrame = 52871
+
+   # resolution of the pitch on the x dimension for calculating probabilities
+   # the bigger the number, the smaller the block for which probabilities are
+   # calculated, the longer the code runs
+   n_grid_cells_x = 49
+
+}
 
 
+################################################################################
+# parms from Laurie's code
+################################################################################
+{
+
+   time_to_control_veto = 3
+
+   params = c()
+   # model parameters
+   params['max_player_accel'] = 7. # maximum player acceleration m/s/s, not used in this implementation
+   params['max_player_speed'] = 5. # maximum player speed m/s
+   params['reaction_time'] = 0.7 # seconds, time taken for player to react and change trajectory. Roughly determined as vmax/amax
+   params['tti_sigma'] = 0.45 # Standard deviation of sigmoid function in Spearman 2018 ('s') that determines uncertainty in player arrival time
+   params['kappa_def'] =  1. # kappa parameter in Spearman 2018 (=1.72 in the paper) that gives the advantage defending players to control ball, I have set to 1 so that home & away players have same ball control probability
+   params['lambda_att'] = 4.3 # ball control parameter for attacking team
+   params['lambda_def'] = 4.3 * params['kappa_def'] # ball control parameter for defending team
+   params['average_ball_speed'] = 15. # average ball travel speed in m/s
+   # numerical parameters for model evaluation
+   params['int_dt'] = 0.04 # integration timestep (dt)
+   params['max_int_time'] = 10 # upper limit on integral time
+   params['model_converge_tol'] = 0.01 # assume convergence when PPCF>0.99 at a given location.
+   # The following are 'short-cut' parameters. We do not need to calculated PPCF explicitly when a player has a sufficient head start.
+   # A sufficient head start is when the a player arrives at the target location at least 'time_to_control' seconds before the next player
+   # params['time_to_control_att'] = time_to_control_veto*np.log(10) * (np.sqrt(3)*params['tti_sigma']/np.pi + 1/params['lambda_att'])
+   # params['time_to_control_def'] = time_to_control_veto*np.log(10) * (np.sqrt(3)*params['tti_sigma']/np.pi + 1/params['lambda_def'])
+   params['time_to_control_att'] = time_to_control_veto*log(10) * (sqrt(3)*params['tti_sigma']/pi + 1/params['lambda_att'])
+   params['time_to_control_def'] = time_to_control_veto*log(10) * (sqrt(3)*params['tti_sigma']/pi + 1/params['lambda_def'])
+
+}
+
+
+
+################################################################################
 # basic data loading and processing
+################################################################################
 {
 
    # loading the data in
@@ -84,35 +135,9 @@ iFrame = 52871
 
 
 
-
-# parms
-
-time_to_control_veto = 3
-
-params = c()
-# model parameters
-params['max_player_accel'] = 7. # maximum player acceleration m/s/s, not used in this implementation
-params['max_player_speed'] = 5. # maximum player speed m/s
-params['reaction_time'] = 0.7 # seconds, time taken for player to react and change trajectory. Roughly determined as vmax/amax
-params['tti_sigma'] = 0.45 # Standard deviation of sigmoid function in Spearman 2018 ('s') that determines uncertainty in player arrival time
-params['kappa_def'] =  1. # kappa parameter in Spearman 2018 (=1.72 in the paper) that gives the advantage defending players to control ball, I have set to 1 so that home & away players have same ball control probability
-params['lambda_att'] = 4.3 # ball control parameter for attacking team
-params['lambda_def'] = 4.3 * params['kappa_def'] # ball control parameter for defending team
-params['average_ball_speed'] = 15. # average ball travel speed in m/s
-# numerical parameters for model evaluation
-params['int_dt'] = 0.04 # integration timestep (dt)
-params['max_int_time'] = 10 # upper limit on integral time
-params['model_converge_tol'] = 0.01 # assume convergence when PPCF>0.99 at a given location.
-# The following are 'short-cut' parameters. We do not need to calculated PPCF explicitly when a player has a sufficient head start.
-# A sufficient head start is when the a player arrives at the target location at least 'time_to_control' seconds before the next player
-# params['time_to_control_att'] = time_to_control_veto*np.log(10) * (np.sqrt(3)*params['tti_sigma']/np.pi + 1/params['lambda_att'])
-# params['time_to_control_def'] = time_to_control_veto*np.log(10) * (np.sqrt(3)*params['tti_sigma']/np.pi + 1/params['lambda_def'])
-params['time_to_control_att'] = time_to_control_veto*log(10) * (sqrt(3)*params['tti_sigma']/pi + 1/params['lambda_att'])
-params['time_to_control_def'] = time_to_control_veto*log(10) * (sqrt(3)*params['tti_sigma']/pi + 1/params['lambda_def'])
-
-
-
-
+################################################################################
+# support functions
+################################################################################
 simple_time_to_intercept = function(
    reaction_time,
    VelocityX,
@@ -154,6 +179,9 @@ probability_intercept_ball = function(
 
 
 
+################################################################################
+# Frame details extraction
+################################################################################
 
 # iFrame = lData$dtEventsData[Type == 'PASS', sample(StartFrame, 1)]
 # iFrame = lData$dtEventsData[821, StartFrame]
@@ -195,13 +223,18 @@ p1 = fAddPitchLines(
 
 print(p1)
 
-n_grid_cells_x = 49
+
+
+
+################################################################################
+# Pitch control probability calculation
+################################################################################
 
 vnXArray = seq(0, nXLimit, nXLimit/n_grid_cells_x)
 vnYArray = seq(0, nYLimit, nYLimit / round(nYLimit / ( nXLimit/n_grid_cells_x )))
 
 cTempDir = tempdir()
-dir.create(cTempDir)
+dir.create(cTempDir, showWarnings = F)
 dtPitchControlProbabilities = rbindlist(
    lapply(
       0:(length(vnXArray)-1),
@@ -462,6 +495,11 @@ dtPitchControlProbabilities = rbindlist(
       }
    )
 )
+
+
+################################################################################
+# Plot of pitch control
+################################################################################
 
 p1 = ggplot() +
    geom_tile(
