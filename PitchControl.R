@@ -1,4 +1,4 @@
-# pretty much a copy of https://github.com/Friends-of-Tracking-Data-FoTD/LaurieOnTracking/blob/master/Lesson6.py
+# Porting https://github.com/Friends-of-Tracking-Data-FoTD/LaurieOnTracking/blob/master/Lesson6.py
 
 rm(list = ls())
 
@@ -6,6 +6,7 @@ library(CodaBonito)
 library(ggplot2)
 library(data.table)
 library(scales)
+library(zoo)
 theme_set(theme_bw(12))
 
 ################################################################################
@@ -27,8 +28,10 @@ theme_set(theme_bw(12))
     # which frame you want to calculate the probabilities for
     # viTrackingFrame = 52865:52900
     # viTrackingFrame = 52936:52900
-    viTrackingFrame = 52936:52945
-    # iTrackingFrame = 52871
+    # viTrackingFrame = 52865:52965
+    # viTrackingFrame = 52865:53165
+    viTrackingFrame = seq((52871-5), (52871+50), 5)
+    # viTrackingFrame = seq(1672, 1753, 6)
 
     # to decide which team to consider in attack
     # also used to adjust reaction time in the event that the tracking slice
@@ -48,6 +51,10 @@ theme_set(theme_bw(12))
     )
 
     cFolderPathToSaveImages = '~/Desktop/PitchControl/'
+
+    # discards the rest of the data after extrcting the frames needed for the 
+    # viz
+    bKeepOnlySubset = T
 
 }
 
@@ -145,97 +152,103 @@ theme_set(theme_bw(12))
 
 
 
-
-
-
-
-
-
-
 ################################################################################
 # support functions
 ################################################################################
-simple_time_to_intercept = function(
-    reaction_time,
-    VelocityX,
-    VelocityY,
-    position_x,
-    position_y,
-    vmax,
-    target_x,
-    target_y
-) {
-
-    position = cbind(position_x, position_y)
-    velocity = cbind(VelocityX, VelocityY)
-    target = cbind(target_x, target_y)
-
-    # Time to intercept assumes that the player continues moving at current velocity for 'reaction_time' seconds
-    # and then runs at full speed to the target position.
-    reaction = position + ( velocity * reaction_time )
-
-    time_to_intercept = reaction_time + ( rowSums( ( target - reaction ) ^ 2 ) ^ 0.5 ) / vmax
-    # time_to_intercept = reaction_time + ( ( ( ( ( r_final[1] - reaction[, 1] ) ^ 2 ) + ( ( r_final[2] - reaction[, 2] ) ^ 2 ) ) ^ 0.5 ) ) / vmax
+{
     
-    return ( time_to_intercept )
+    simple_time_to_intercept = function(
+        reaction_time,
+        VelocityX,
+        VelocityY,
+        position_x,
+        position_y,
+        vmax,
+        target_x,
+        target_y
+    ) {
 
-}
+        position = cbind(position_x, position_y)
+        velocity = cbind(VelocityX, VelocityY)
+        target = cbind(target_x, target_y)
 
+        # Time to intercept assumes that the player continues moving at current velocity for 'reaction_time' seconds
+        # and then runs at full speed to the target position.
+        reaction = position + ( velocity * reaction_time )
 
-
-probability_intercept_ball = function(
-   tti_sigma,
-   time_to_intercept,
-   Time
-) {
-
-    # probability of a player arriving at target location at time 'T' given their expected time_to_intercept (time of arrival), as described in Spearman 2018
-    f = 1/(1. + exp( -pi/sqrt(3.0)/tti_sigma * (Time - time_to_intercept) ) )
-    return (f)
-
-}
-
-
-
-lProbabilities = list()
-
-for ( iTrackingFrame in viTrackingFrame ) {
+        time_to_intercept = reaction_time + ( rowSums( ( target - reaction ) ^ 2 ) ^ 0.5 ) / vmax
+        # time_to_intercept = reaction_time + ( ( ( ( ( r_final[1] - reaction[, 1] ) ^ 2 ) + ( ( r_final[2] - reaction[, 2] ) ^ 2 ) ) ^ 0.5 ) ) / vmax
         
-    ################################################################################
-    # Frame details extraction
-    ################################################################################
+        return ( time_to_intercept )
 
+    }
+
+
+
+    probability_intercept_ball = function(
+    tti_sigma,
+    time_to_intercept,
+    Time
+    ) {
+
+        # probability of a player arriving at target location at time 'T' given their expected time_to_intercept (time of arrival), as described in Spearman 2018
+        f = 1/(1. + exp( -pi/sqrt(3.0)/tti_sigma * (Time - time_to_intercept) ) )
+        return (f)
+
+    }
+
+}
+
+
+################################################################################
+# Frame details extraction
+################################################################################
+{
+        
     # iTrackingFrame = lData$dtEventsData[Type == 'PASS', sample(StartFrame, 1)]
     # iTrackingFrame = lData$dtEventsData[821, StartFrame]
     dtTrackingSlice = lData$dtTrackingData[
-        Frame %in% iTrackingFrame
+        Frame %in% viTrackingFrame
     ]
 
-    dtEventSlice = lData$dtEventsData[
-        StartFrame <= iTrackingFrame
-    ][
-        which.max(StartFrame)
+    dtTrackingSlice[,
+        c('Period','Time_s') := NULL
+    ]
+    # last team to make a pass is in control
+    # todo
+    dtAttackingTeam = merge(
+        lData$dtEventsData[
+            Type %in% c("PASS", "SHOT", "SET PIECE", "RECOVERY") |
+            Subtype %in% c("GOAL KICK", "KICK OFF"),
+            list(AttackingTeam = Team[1]),
+            list(Frame = StartFrame)
+        ],
+        data.table(Frame = viTrackingFrame),
+        'Frame',
+        all = T
+    )[, 
+        AttackingTeam := na.locf(AttackingTeam, na.rm = F)
     ]
 
-    cAttackingTeam = dtEventSlice[, 
-        Team
+    dtAttackingTeam = dtAttackingTeam[
+        Frame %in% viTrackingFrame
     ]
 
+    if ( bKeepOnlySubset ) {
 
-    cDefendingTeam = setdiff(
-        lData$dtEventsData[, unique(Team)],
-        cAttackingTeam
-    )
+        rm(lData)
+        
+    }
 
     if ( F ) {
 
         p1 = ggplot(
-        dtTrackingSlice[Player != 'Ball']
+            dtTrackingSlice[Player != 'Ball'][Frame == Frame[1]]
         ) +
             geom_point(aes(x = X, y = Y, color = Tag)) +
             # geom_text(aes(x = X, y = Y, label = Player)) +
             geom_segment(
-                data = lData$dtEventsData[StartFrame == iTrackingFrame],
+                data = lData$dtEventsData[StartFrame == dtTrackingSlice[, Frame[1]]],
                 aes(
                     x = EventStartX,
                     y = EventStartY,
@@ -260,432 +273,451 @@ for ( iTrackingFrame in viTrackingFrame ) {
 
     }
 
+}
 
 
-    ################################################################################
-    # Pitch control probability calculation
-    ################################################################################
+
+################################################################################
+# Pitch control probability calculation
+################################################################################
+{
 
     vnXArray = seq(0, nXLimit, nXLimit/n_grid_cells_x)
     vnYArray = seq(0, nYLimit, nYLimit / round(nYLimit / ( nXLimit/n_grid_cells_x )))
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-    {
-
-        dtDetails = data.table(
-            expand.grid(
-                TargetX = vnXArray,
-                TargetY = vnYArray
-            )
+    dtDetails = data.table(
+        expand.grid(
+            Frame = viTrackingFrame,
+            TargetX = vnXArray,
+            TargetY = vnYArray
         )
+    )
 
-        dtDetails[, SNO := .I]
+    dtDetails[, SNO := .I]
 
-        # ball travel time is distance to target position from current ball position divided assumed average ball speed
-        dtDetails[, 
-            ball_travel_time := sqrt(
-                # ( ( TargetX - dtEventSlice[, EventStartX] ) ^ 2 ) +
-                # ( ( TargetY - dtEventSlice[, EventStartY] ) ^ 2 )
-                ( ( TargetX - dtTrackingSlice[Player == 'Ball', X] ) ^ 2 ) +
-                ( ( TargetY - dtTrackingSlice[Player == 'Ball', Y]) ^ 2 )
-            ) / params['average_ball_speed']
-        ]
+    dtDetails = merge(
+        dtDetails,
+        dtAttackingTeam,
+        'Frame'
+    )
 
-        # optimise more
-        dtTrackingSliceVectorised = rbindlist(
-            lapply(
-                seq(nrow(dtDetails)),
-                function(x) {
-                    
-                    dtTrackingSliceVectorised = copy(dtTrackingSlice)
-
-                    dtTrackingSliceVectorised[, SNO := dtDetails[x, SNO]]
-
-                    dtTrackingSliceVectorised
-
-                }
-            )
-        )
-
-        dtTrackingSliceVectorised = dtTrackingSlice[,
-            list(SNO = dtDetails[, SNO]),
-            by = c(colnames(dtTrackingSlice))
-        ]
-
-        dtTrackingSliceVectorised = merge(
-            dtTrackingSliceVectorised,
-            dtDetails,
-            c('SNO')
-        )
-
-        # first get arrival time of 'nearest' attacking player (nearest also dependent on current velocity)
-        dtTrackingSliceVectorised[
-            Tag != 'Ball',
-            time_to_intercept := simple_time_to_intercept(
-                reaction_time = pmax(
-                    -Inf,
-                    params['reaction_time']
-                    #  - (
-                    #     Time_s - dtEventSlice[,
-                    #         StartTime_s
-                    #     ]
-                    # )
-                ),
-                VelocityX = VelocityX,
-                VelocityY = VelocityY,
-                position_x = X,
-                position_y = Y,
-                vmax = params['max_player_speed'],
-                target_x = TargetX,
-                target_y = TargetY
-            )
-        ]
-
-        dtDetails = merge(
-            dtDetails,
-            setnames(
-                dcast(
-                    dtTrackingSliceVectorised[
-                        Tag != 'Ball', 
-                        list(
-                            tau_min = min(time_to_intercept)
-                        ),
-                        list(TargetX, TargetY, Tag)
-                    ], 
-                    TargetX + TargetY ~ Tag, 
-                    value.var= 'tau_min'
-                ),
-                c('Home','Away'),
-                c('Home_Tau','Away_Tau')
-            ),
-            c('TargetX','TargetY')
-        )
-
-
-        if ( cAttackingTeam == 'Home' ) {
-
-            setnames(
-                dtDetails,
-                c('Home_Tau','Away_Tau'),
-                c('tau_min_att','tau_min_def')
-            )
-
-        } else {
-
-            setnames(
-                dtDetails,
-                c('Home_Tau','Away_Tau'),
-                c('tau_min_def','tau_min_att')
-            )
-
-        }
-
-        dtDetails[
-            tau_min_att - pmax(ball_travel_time, tau_min_def) >= params['time_to_control_def'],
-            AttackProbability := 0
-        ]
-
-        dtDetails[
-            tau_min_def - pmax(ball_travel_time, tau_min_att) >= params['time_to_control_att'],
-            AttackProbability := 1
-        ]
-
-        viSNOToEvaluate = dtDetails[(is.na(AttackProbability)), SNO]
-        viSNOToEvaluate = sort(viSNOToEvaluate)
-
-        setkey(
-            dtTrackingSliceVectorised,
-            SNO
-        )
-
-        # remove the ones which are already done
-        dtTrackingSliceVectorised = merge(
-            dtTrackingSliceVectorised,
-            dtDetails[
-                is.na(AttackProbability), 
-                list(SNO, tau_min_att, tau_min_def)
-            ],
-            'SNO'
-        )
-
-        dtTrackingSliceVectorised = dtTrackingSliceVectorised[(
-                Tag == cDefendingTeam &
-                time_to_intercept - tau_min_def < params['time_to_control_def']
-            ) | (
-                Tag == cAttackingTeam &
-                time_to_intercept - tau_min_att < params['time_to_control_att']
-            )
-        ]
-
-        dT_array = seq(
-            -params['int_dt'],
-            params['max_int_time'] - params['int_dt'],
-            params['int_dt']
-        )
-
-        dtPPCF = data.table(
-            AttackProbability = 0,
-            DefenseProbability = 0
-        )[,
+    dtDetails = merge(
+        dtDetails,
+        dtTrackingSlice[
+            Player == 'Ball'
+        ][
+            Frame %in% viTrackingFrame
+        ][,
             list(
-                SNO = viSNOToEvaluate
+                Frame,
+                BallX = X,
+                BallY = Y
+            )
+        ],
+        'Frame'
+    )
+
+    # ball travel time is distance to target position from current ball position 
+    # divided assumed average ball speed 
+    # 
+    # difference from laurie's code
+    # laurie's code used the pass start x,y coordinates but i use the ball's
+    # tracked x,y coordinates instead
+    dtDetails[, 
+        ball_travel_time := sqrt(
+            ( ( TargetX - BallX ) ^ 2 ) +
+            ( ( TargetY - BallY ) ^ 2 )
+        ) / params['average_ball_speed']
+    ]
+
+    dtDetails[, c('BallX','BallY') := NULL]
+
+    dtTrackingSliceVectorised = dtTrackingSlice[,
+        list(SNO = unlist(dtDetails[, SNO])),
+        by = c(colnames(dtTrackingSlice))
+    ]
+
+    dtTrackingSliceVectorised = merge(
+        dtTrackingSliceVectorised,
+        dtDetails,
+        c('SNO','Frame')
+    )
+
+    # first get arrival time of 'nearest' attacking player (nearest also dependent on current velocity)
+    dtTrackingSliceVectorised[
+        Tag != 'Ball',
+        time_to_intercept := simple_time_to_intercept(
+            reaction_time = pmax(
+                -Inf,
+                params['reaction_time']
+                #  - (
+                #     Time_s - dtAttackingTeam[,
+                #         StartTime_s
+                #     ]
+                # )
             ),
-            list(
-                DefenseProbability,
-                AttackProbability
-            )
-        ]
+            VelocityX = VelocityX,
+            VelocityY = VelocityY,
+            position_x = X,
+            position_y = Y,
+            vmax = params['max_player_speed'],
+            target_x = TargetX,
+            target_y = TargetY
+        )
+    ]
 
-        vbSNOToEvaluationFlag = rep(T, length(viSNOToEvaluate))
-        dtTrackingSliceVectorised[, PlayerPPCF := 0]
-        
-        i = 2
+    dtTrackingSliceVectorised[, c('X','Y') := NULL]
+    dtTrackingSliceVectorised[, c('TargetX','TargetY') := NULL]
+    dtTrackingSliceVectorised[, c('VelocityX','VelocityY') := NULL]
 
-        dtProbabilities = data.table()
-
-        repeat {
-
-            # calculate ball control probablity for 'player' in time interval T+dt
-            dtTrackingSliceVectorised = merge(
-                dtTrackingSliceVectorised,
-                dtPPCF,
-                c('SNO'),
-                all.x = T
-            )
-            
-            dtTrackingSliceVectorised[
-                !is.na(AttackProbability), 
-                PlayerPPCF := 
-                    PlayerPPCF + 
-                    pmax(
-                        ( 
-                            1 - 
-                            AttackProbability - 
-                            DefenseProbability
-                        ) *
-                        probability_intercept_ball(
-                            params['tti_sigma'],
-                            time_to_intercept,
-                            dT_array[i] + ball_travel_time
-                        ) *
-                        params[
-                            paste0(
-                                'lambda_',
-                                ifelse(
-                                    Tag == cAttackingTeam,
-                                    'att',
-                                    'def'
-                                )
-                            )
-                        ] * 
-                        params['int_dt'],
-                        0
-                    )
-            ]
-
-            dtPPCF = dtTrackingSliceVectorised[
-                !is.na(AttackProbability),
-                list( 
-                    DefenseProbability = sum(
-                        PlayerPPCF[Tag == cDefendingTeam]
-                    ), 
-                    AttackProbability = sum(
-                        PlayerPPCF[Tag == cAttackingTeam]
-                    )
-                ),
-                SNO
-            ]
-
-            dtProbabilities = rbind(
-                dtProbabilities,
-                dtPPCF[
-                    AttackProbability + DefenseProbability > 1 - params['model_converge_tol'],
+    dtDetails = merge(
+        dtDetails,
+        setnames(
+            dcast(
+                dtTrackingSliceVectorised[
+                    Tag != 'Ball', 
                     list(
-                        SNO,
-                        AttackProbability,
-                        DefenseProbability
-                    )
-                ],
-                fill = T
-            )
-
-            if ( dtProbabilities[, any(AttackProbability + DefenseProbability > 1 + params['model_converge_tol'])] ) {
-                stop('Probabilities > 1. Look at dtProbabilities to debug.')
-            }
-
-
-            dtPPCF = dtPPCF[
-                !SNO %in% dtProbabilities[, SNO]
-            ]
-
-            i = i + 1
-
-            if ( i > length(dT_array) ) {
-                break
-            }
-
-            if ( nrow(dtPPCF) == 0 ) {
-                break
-            }
-
-            dtTrackingSliceVectorised = dtTrackingSliceVectorised[,
-                c('AttackProbability','DefenseProbability') := NULL
-            ]
-
-        }
-
-
-        if ( i > length(dT_array) ) {
-
-            warning(
-                paste0(
-                    "Integration failed to converge for some cases",
-                    ptot
-                )
-            )
-
-            print(
-                paste0(
-                    'SNOS:',
-                    dtPPCF[, SNO]
-                )
-            )
-
-            # stop()
-
-        }
-
-        dtDetails = rbind(
-            dtDetails[!is.na(AttackProbability)],
-            merge(
-                dtDetails[
-                    is.na(AttackProbability)
-                ][, 
-                    !'AttackProbability'
-                ],
-                dtProbabilities,
-                'SNO',
-                all = T
+                        tau_min = min(time_to_intercept)
+                    ),
+                    list(SNO, Tag)
+                ], 
+                SNO ~ Tag, 
+                value.var= 'tau_min'
             ),
+            c('Home','Away'),
+            c('tau_min_att','tau_min_def')
+        ),
+        c('SNO')
+    )
+
+    dtDetails[
+        AttackingTeam == 'Away',
+        c('tau_min_att','tau_min_def') := list(tau_min_def, tau_min_att)
+    ]
+
+    dtDetails[
+        tau_min_att - pmax(ball_travel_time, tau_min_def) >= params['time_to_control_def'],
+        AttackProbability := 0
+    ]
+
+    dtDetails[
+        tau_min_def - pmax(ball_travel_time, tau_min_att) >= params['time_to_control_att'],
+        AttackProbability := 1
+    ]
+
+    viSNOToEvaluate = dtDetails[(is.na(AttackProbability)), SNO]
+    viSNOToEvaluate = sort(viSNOToEvaluate)
+
+    setkey(
+        dtTrackingSliceVectorised,
+        SNO
+    )
+
+    # remove the ones which are already done
+    dtTrackingSliceVectorised = merge(
+        dtTrackingSliceVectorised,
+        dtDetails[
+            is.na(AttackProbability), 
+            list(SNO, tau_min_att, tau_min_def)
+        ],
+        'SNO'
+    )
+
+    dtTrackingSliceVectorised = dtTrackingSliceVectorised[(
+            Tag != AttackingTeam &
+            time_to_intercept - tau_min_def < params['time_to_control_def']
+        ) | (
+            Tag == AttackingTeam &
+            time_to_intercept - tau_min_att < params['time_to_control_att']
+        )
+    ]
+
+    dtTrackingSliceVectorised[, c('tau_min_def','tau_min_att') := NULL]
+
+    dT_array = seq(
+        -params['int_dt'],
+        params['max_int_time'] - params['int_dt'],
+        params['int_dt']
+    )
+
+    dtPPCF = data.table(
+        AttackProbability = 0,
+        DefenseProbability = 0
+    )[,
+        list(
+            SNO = viSNOToEvaluate
+        ),
+        list(
+            DefenseProbability,
+            AttackProbability
+        )
+    ]
+
+    vbSNOToEvaluationFlag = rep(T, length(viSNOToEvaluate))
+    dtTrackingSliceVectorised[, PlayerPPCF := 0]
+    
+    i = 2
+
+    dtProbabilities = data.table()
+
+    repeat {
+
+        # calculate ball control probablity for 'player' in time interval T+dt
+        dtTrackingSliceVectorised = merge(
+            dtTrackingSliceVectorised,
+            dtPPCF,
+            c('SNO'),
+            all.x = T
+        )
+        
+        dtTrackingSliceVectorised[
+            !is.na(AttackProbability), 
+            PlayerPPCF := 
+                PlayerPPCF + 
+                pmax(
+                    ( 
+                        1 - 
+                        AttackProbability - 
+                        DefenseProbability
+                    ) *
+                    probability_intercept_ball(
+                        params['tti_sigma'],
+                        time_to_intercept,
+                        dT_array[i] + ball_travel_time
+                    ) *
+                    params[
+                        paste0(
+                            'lambda_',
+                            ifelse(
+                                Tag == AttackingTeam,
+                                'att',
+                                'def'
+                            )
+                        )
+                    ] * 
+                    params['int_dt'],
+                    0
+                )
+        ]
+
+        dtPPCF = dtTrackingSliceVectorised[
+            !is.na(AttackProbability),
+            list( 
+                DefenseProbability = sum(
+                    PlayerPPCF[Tag != AttackingTeam]
+                ), 
+                AttackProbability = sum(
+                    PlayerPPCF[Tag == AttackingTeam]
+                )
+            ),
+            SNO
+        ]
+
+        dtProbabilities = rbind(
+            dtProbabilities,
+            dtPPCF[
+                AttackProbability + DefenseProbability > 1 - params['model_converge_tol'],
+                list(
+                    SNO,
+                    AttackProbability,
+                    DefenseProbability
+                )
+            ],
             fill = T
         )
 
+        if ( dtProbabilities[, any(AttackProbability + DefenseProbability > 1 + params['model_converge_tol'])] ) {
+            stop('Probabilities > 1. Look at dtProbabilities to debug.')
+        }
+
+
+        dtPPCF = dtPPCF[
+            !SNO %in% dtProbabilities[, SNO]
+        ]
+
+        i = i + 1
+
+        if ( i > length(dT_array) ) {
+            break
+        }
+
+        if ( nrow(dtPPCF) == 0 ) {
+            break
+        }
+
+        dtTrackingSliceVectorised = dtTrackingSliceVectorised[,
+            c('AttackProbability','DefenseProbability') := NULL
+        ]
+
     }
+
+
+    if ( i > length(dT_array) ) {
+
+        warning(
+            paste0(
+                "Integration failed to converge for some cases",
+                ptot
+            )
+        )
+
+        print(
+            paste0(
+                'SNOS:',
+                dtPPCF[, SNO]
+            )
+        )
+
+        # stop()
+
+    }
+
+    dtDetails = rbind(
+        dtDetails[!is.na(AttackProbability)],
+        merge(
+            dtDetails[
+                is.na(AttackProbability)
+            ][, 
+                !'AttackProbability'
+            ],
+            dtProbabilities,
+            'SNO',
+            all = T
+        ),
+        fill = T
+    )
 
     dtDetails[
         is.na(DefenseProbability),
         DefenseProbability := 1 - AttackProbability
     ]
 
-    lProbabilities = lProbabilities[[length(lProbabilities) + 1]] = dtDetails
-    ################################################################################
-    # Plot of pitch control
-    ################################################################################
+}
 
-    p1 = ggplot() +
-    geom_tile(
-        data = dtDetails,
-        aes(
-            x = TargetX,
-            y = TargetY,
-            fill =  AttackProbability
+
+################################################################################
+# Plot of pitch control
+################################################################################
+{
+        
+    cFolderPathToSaveImagesSubdir = paste0(
+        cFolderPathToSaveImages,
+        min(viTrackingFrame), '_',
+        max(viTrackingFrame), '/'
+    )
+
+    dir.create(
+        cFolderPathToSaveImagesSubdir,
+        recursive = T,
+        showWarnings = F
+    )
+
+    for ( iTrackingFrame in viTrackingFrame ) {
+            
+        p1 = ggplot() +
+            geom_tile(
+                data = dtDetails[
+                    Frame == iTrackingFrame
+                ],
+                aes(
+                    x = TargetX,
+                    y = TargetY,
+                    fill =  AttackProbability
+                )
+            ) +
+            geom_point(
+                data = dtTrackingSlice[
+                    Frame == iTrackingFrame
+                ][
+                    Player != 'Ball'
+                ],
+                aes(x = X, y = Y),
+                color = 'white',
+                size = 7
+            ) +
+            geom_point(
+                data = dtTrackingSlice[
+                    Frame == iTrackingFrame
+                ][
+                    Player != 'Ball'
+                ],
+                aes(x = X, y = Y, color = Tag),
+                size = 6
+            ) +
+            geom_point(
+                data = dtTrackingSlice[
+                    Frame == iTrackingFrame
+                ][
+                    Player == 'Ball'
+                ],
+                aes(x = X, y = Y, color = Tag),
+                size = 4
+            ) +
+            geom_segment(
+                data = dtTrackingSlice[
+                    Frame == iTrackingFrame
+                ][
+                    Player != 'Ball'
+                ],
+                aes(
+                    x = X, y = Y,
+                    xend = X + VelocityX,
+                    yend = Y + VelocityY,
+                    color = Tag
+                )
+            ) +
+            # geom_text(aes(x = X, y = Y, label = Player)) +
+            # geom_segment(
+            #    data = lData$dtEventsData[StartFrame == iTrackingFrame],
+            #    aes(
+            #       x = EventStartX,
+            #       y = EventStartY,
+            #       xend = EventEndX,
+            #       yend = EventEndY
+            #    )
+            # ) +
+            scale_fill_gradient2(
+                low = vcColourAssignment[
+                    dtAttackingTeam[Frame == iTrackingFrame, setdiff(c('Home','Away'), AttackingTeam)]
+                ], 
+                mid = 'white', 
+                high = vcColourAssignment[
+                    dtAttackingTeam[Frame == iTrackingFrame, AttackingTeam]
+                ],
+                midpoint = 0.5,
+                guide = FALSE
+            ) +
+            scale_color_manual(
+                values = vcColourAssignment,
+                guide = FALSE
+            )
+
+        p1 = fAddPitchLines(
+            p1,
+            nXLimit = nXLimit,
+            nYLimit = nYLimit,
+            cLineColour = 'black',
+            cPitchColour = NA
         )
-    ) +
-    geom_point(
-        data = dtTrackingSlice[
-            Player != 'Ball'
-        ],
-        aes(x = X, y = Y),
-        color = 'white',
-        size = 7
-    ) +
-    geom_point(
-        data = dtTrackingSlice[
-            Player != 'Ball'
-            ],
-        aes(x = X, y = Y, color = Tag),
-        size = 6
-    ) +
-    geom_point(
-        data = dtTrackingSlice[
-            Player == 'Ball'
-            ],
-        aes(x = X, y = Y, color = Tag),
-        size = 4
-    ) +
-    geom_segment(
-        data = dtTrackingSlice[Player != 'Ball'],
-        aes(
-            x = X, y = Y,
-            xend = X + VelocityX,
-            yend = Y + VelocityY,
-            color = Tag
+
+        p1 = p1 + 
+            theme_pitch()
+
+        # print(p1)
+
+        ggsave(
+            p1,
+            file = paste0(
+                cFolderPathToSaveImagesSubdir,
+                iTrackingFrame,
+                '.png'
+            ),
+            width = 20,
+            height = 14,
+            units = 'cm'
         )
-    ) +
-    # geom_text(aes(x = X, y = Y, label = Player)) +
-    # geom_segment(
-    #    data = lData$dtEventsData[StartFrame == iTrackingFrame],
-    #    aes(
-    #       x = EventStartX,
-    #       y = EventStartY,
-    #       xend = EventEndX,
-    #       yend = EventEndY
-    #    )
-    # ) +
-    scale_fill_gradient2(
-        low = vcColourAssignment[cDefendingTeam], 
-        mid = 'white', 
-        high = vcColourAssignment[cAttackingTeam], 
-        midpoint = 0.5,
-        guide = FALSE
-    ) +
-    scale_color_manual(
-        values = vcColourAssignment,
-        guide = FALSE
-    )
 
-    p1 = fAddPitchLines(
-    p1,
-    nXLimit = nXLimit,
-    nYLimit = nYLimit,
-    cLineColour = 'black',
-    cPitchColour = NA
-    )
-
-    p1 = p1 + 
-        theme_pitch()
-
-    print(p1)
-
-
-    ggsave(
-        p1,
-        file = paste0(
-            cFolderPathToSaveImages,
-            iTrackingFrame,
-            '.png'
-        ),
-        width = 20,
-        height = 14,
-        units = 'cm'
-    )
-
-    rm(dtDetails)
-    rm(dtPPCF)
-    rm(dtProbabilities)
-    rm(dtTrackingSlice)
-    rm(dtTrackingSliceVectorised)
+    }
 
 }
