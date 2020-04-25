@@ -1,19 +1,13 @@
 Before you begin:
 -----------------
 
-Before attempting to run this code , you will need to install the
-CodaBonito library, run the lines below in your R console and that
-should hopefully be it - `install.packages("devtools");`
-`library(devtools);` `install_github("thecomeonman/CodaBonito");`
-
-You will also need to install data.table and ggplot2, which can be
-installed off of CRAN - `install.packages(c('data.table','ggplot2'))`
+Before attempting to run this code, follow the instructions at
+<a href="https://github.com/thecomeonman/CodaBonito" class="uri">https://github.com/thecomeonman/CodaBonito</a>
+to install some dependencies.
 
 Also get the tracking data, recently made public as part of the Friends
 of Tracking sessions by Metrica from here -
 <a href="https://github.com/metrica-sports/sample-data" class="uri">https://github.com/metrica-sports/sample-data</a>
-
-You’re good to go now
 
 The code
 --------
@@ -32,6 +26,15 @@ The code
     cGameName = 'Sample_Game_1'
     nXLimit = 120
     nYLimit = 80
+    # upper limit of speed to cap weird speed values
+    nUpperLimitSpeed = 5 * 120 / 105
+
+
+    vcColourAssignment = c(
+       'Home' = 'red',
+       'Ball' = 'black',
+       'Away' = 'blue'
+    )
 
     # loading the data in
     lData = fParseTrackingDataBothTeams(
@@ -40,7 +43,8 @@ The code
        nXLimit = nXLimit,
        nYLimit = nYLimit,
        xMaxBB = 1,
-       yMaxBB = 1
+       yMaxBB = 1,
+       nUpperLimitSpeed = nUpperLimitSpeed
     )
 
     # Instructions
@@ -50,7 +54,9 @@ The code
 
     dtEventSlice = lData$dtEventsData[
        # Frame == ( sample( Frame[which(Subtype == "ON TARGET-GOAL")], 1) )
-       StartFrame == 99032
+       StartFrame == 99005
+       # StartFrame == 90005
+       # StartFrame == 99032
     ]
 
     dtTrackingSlice = lData$dtTrackingData[ 
@@ -78,29 +84,32 @@ The code
 
 ![](README_files/figure-markdown_strict/PlottingASlice-1.png)
 
-
-    voronoiOutput = fDrawVoronoiFromTable(
-        dtTrackingSlice,
-        nXLimit = nXLimit,
-        nYLimit = nYLimit,
-        UseOneFrameEvery = 1,
-        DelayBetweenFrames = 5
-    )
-
-    if ( !interactive() ) {
-        
-        qwe = suppressWarnings(
-            file.remove('./README_files/figure-markdown_strict/Voronoi.gif')
-        )
-        rm(qwe)
-
-        qwe = file.copy(
-            voronoiOutput,
-            './README_files/figure-markdown_strict/Voronoi.gif'
-        )
-
-        rm(qwe)
-        
+    if ( !file.exists('./README_files/figure-markdown_strict/Voronoi.gif') ) {
+          
+       voronoiOutput = fDrawVoronoiFromTable(
+          dtTrackingSlice,
+          nXLimit = nXLimit,
+          nYLimit = nYLimit,
+          UseOneFrameEvery = 1,
+          DelayBetweenFrames = 5
+       )
+       
+       if ( !interactive() ) {
+          
+          qwe = suppressWarnings(
+             file.remove('./README_files/figure-markdown_strict/Voronoi.gif')
+          )
+          rm(qwe)
+       
+          qwe = file.copy(
+             voronoiOutput,
+             './README_files/figure-markdown_strict/Voronoi.gif'
+          )
+       
+          rm(qwe)
+          
+       }
+       
     }
 
 ![](./README_files/figure-markdown_strict/Voronoi.gif)
@@ -111,42 +120,44 @@ Suggestions welcome.
 
 What about adding some annotations?
 
+    if ( !file.exists('./README_files/figure-markdown_strict/VoronoiAnnotated.gif') ) {
 
-    voronoiOutput = fDrawVoronoiFromTable(
-        dtTrackingSlice,
-        nXLimit = nXLimit,
-        nYLimit = nYLimit,
-        UseOneFrameEvery = 1,
-        DelayBetweenFrames = 5,
-        markTrajectoryFor = c(
-            'HomePlayer5',
-            'HomePlayer4',
-            'AwayPlayer17'
-        ),
-        markOffsideLineFor = list(
-            c('Away', 'AwayPlayer25', min)
-        ),
-        markLineBetween = list(
-            c('HomePlayer4','AwayPlayer17')
-        )
-    )
+       voronoiOutput = fDrawVoronoiFromTable(
+          dtTrackingSlice,
+          nXLimit = nXLimit,
+          nYLimit = nYLimit,
+          UseOneFrameEvery = 1,
+          DelayBetweenFrames = 5,
+          markTrajectoryFor = c(
+             'HomePlayer5',
+             'HomePlayer4',
+             'AwayPlayer17'
+          ),
+          markOffsideLineFor = list(
+             c('Away', 'AwayPlayer25', min)
+          ),
+          markLineBetween = list(
+             c('HomePlayer4','AwayPlayer17')
+          )
+       )
+       
+       if ( !interactive() ) {
+          
+          qwe = suppressWarnings(
+             file.remove('./README_files/figure-markdown_strict/Voronoi.gif')
+          )
+          rm(qwe)
+       
+          qwe = file.copy(
+             voronoiOutput,
+             './README_files/figure-markdown_strict/VoronoiAnnotated.gif'
+          )
+       
+          rm(qwe)
+          
+       }
 
-    if ( !interactive() ) {
-        
-        qwe = suppressWarnings(
-            file.remove('./README_files/figure-markdown_strict/Voronoi.gif')
-        )
-        rm(qwe)
-
-        qwe = file.copy(
-            voronoiOutput,
-            './README_files/figure-markdown_strict/VoronoiAnnotated.gif'
-        )
-
-        rm(qwe)
-    
     }
-
 
 ![](./README_files/figure-markdown_strict/VoronoiAnnotated.gif)
 
@@ -158,7 +169,64 @@ the cross from happening?
 Note how the recipient of the cross is in an offside position but
 recovers in time for the cross.
 
-Next steps
-----------
+Pitch control models are a more accurate reflection than voronois so
+porting Laurie Shaw’s code from William Spearman’s paper -
 
-Making it prettier, adding pitch outlines, etc.
+    if ( !file.exists('./README_files/figure-markdown_strict/PitchControl.gif') ) {
+
+        viTrackingFrame = dtTrackingSlice[, seq(min(Frame) - 10, max(Frame), 5)]
+       
+        params = c()
+        params['time_to_control_veto'] = 3
+        # model parameters
+        params['max_player_accel'] = 7. # maximum player acceleration m/s/s, not used in this implementation
+        params['max_player_speed'] = nUpperLimitSpeed # maximum player speed m/s
+        params['reaction_time'] = 0.7 # seconds, time taken for player to react and change trajectory. Roughly determined as vmax/amax
+        params['tti_sigma'] = 0.45 # Standard deviation of sigmoid function in Spearman 2018 ('s') that determines uncertainty in player arrival time
+        params['kappa_def'] =  1. # kappa parameter in Spearman 2018 (=1.72 in the paper) that gives the advantage defending players to control ball, I have set to 1 so that home & away players have same ball control probability
+        params['lambda_att'] = 4.3 # ball control parameter for attacking team
+        params['lambda_def'] = 4.3 * params['kappa_def'] # ball control parameter for defending team
+        params['average_ball_speed'] = 15. # average ball travel speed in m/s
+        # numerical parameters for model evaluation
+        params['int_dt'] = 0.04 # integration timestep (dt)
+        params['max_int_time'] = 10 # upper limit on integral time
+        params['model_converge_tol'] = 0.01 # assume convergence when PPCF>0.99 at a given location.
+        # The following are 'short-cut' parameters. We do not need to calculated PPCF explicitly when a player has a sufficient head start.
+        # A sufficient head start is when the a player arrives at the target location at least 'time_to_control' seconds before the next player
+        # params['time_to_control_att'] = params['time_to_control_veto']*np.log(10) * (np.sqrt(3)*params['tti_sigma']/np.pi + 1/params['lambda_att'])
+        # params['time_to_control_def'] = params['time_to_control_veto']*np.log(10) * (np.sqrt(3)*params['tti_sigma']/np.pi + 1/params['lambda_def'])
+        params['time_to_control_att'] = params['time_to_control_veto']*log(10) * (sqrt(3)*params['tti_sigma']/pi + 1/params['lambda_att'])
+        params['time_to_control_def'] = params['time_to_control_veto']*log(10) * (sqrt(3)*params['tti_sigma']/pi + 1/params['lambda_def'])
+
+        lPitchControl = fGetPitchControlProbabilities (
+            lData,
+            viTrackingFrame,
+            params = params,
+            nYLimit = nYLimit,
+            nXLimit = nXLimit,
+            iGridCellsX = nYLimit
+        )
+            
+        pPlotPitchControl = fPlotPitchControl(
+            lPitchControl
+        )
+       
+       if ( !interactive() ) {
+          
+          qwe = suppressWarnings(
+             file.remove('./README_files/figure-markdown_strict/PitchControl.gif')
+          )
+          rm(qwe)
+       
+          qwe = file.copy(
+             pPlotPitchControl,
+             './README_files/figure-markdown_strict/PitchControl.gif'
+          )
+       
+          rm(qwe)
+          
+       }
+
+    }
+
+![](./README_files/figure-markdown_strict/PitchControl.gif)
