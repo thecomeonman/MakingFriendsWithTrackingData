@@ -133,7 +133,7 @@ ggplot(
    ) +
    scale_alpha_continuous(guide = F) +
    labs(
-      title = 'Minutes spent within ~6 feet of each other ',
+      title = 'Total minutes spent within ~6 feet',
       x = NULL,
       y = NULL,
       caption = '- @thecomeonman'
@@ -169,7 +169,7 @@ ggplot(
    ) +
    scale_alpha_continuous(guide = F) +
    labs(
-      title = 'Instances of being within ~6 feet of each other ',
+      title = 'Total instances of being within ~6 feet',
       x = NULL,
       y = NULL,
       caption = '- @thecomeonman'
@@ -192,7 +192,7 @@ ggplot(
       )
    ) +
    labs(
-      title = 'Minutes spent within ~6 feet of any other player',
+      title = 'Minutes spent within ~6 feet of another player in a continuous stretch',
       x = NULL,
       y = NULL,
       caption = '- @thecomeonman'
@@ -226,7 +226,7 @@ p1 = ggplot(
          dtLongestStretch,
          dtSocialDistancing,
          c('Player.x', 'Player.y', 'Stretch')
-      )[, paste0('Longest stretch of staying in each other\'s vicinty: from frame ', min(Frame), ' to frame ', max(Frame))],
+      )[, paste0('Longest stretch of two players staying in each other\'s vicinty: from frame ', min(Frame), ' to frame ', max(Frame))],
       caption = '- @thecomeonman'
    )
 
