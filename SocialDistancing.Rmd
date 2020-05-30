@@ -1,0 +1,242 @@
+---
+title: "Novel Uses of Tracking Data in Modern Football"
+date: "30/05/2020"
+output: md_document
+---
+
+## Before you begin:
+
+Before attempting to run this code, follow the instructions at 
+https://github.com/thecomeonman/CodaBonito to install some dependencies.
+
+Also get the tracking data, recently made public as part of the Friends of 
+Tracking sessions by Metrica from here - https://github.com/metrica-sports/sample-data
+
+## The code
+
+```{r Setup, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+library(CodaBonito)
+library(data.table)
+library(ggplot2)
+library(ggrepel)
+theme_set(theme_bw(12))
+
+rm(list = ls())
+
+# Instructions
+# You would have downloaded and saved the data from Github at some location on
+# your system. In my case, it's /media/ask/Data/Personal/Projects/Personal/sample-data
+# Replace the location below with the respective location from your machine
+cDataRootFolder = '/media/ask/Data/Personal/Projects/Personal/sample-data/data/'
+cGameName = 'Sample_Game_1'
+nXLimit = 120
+nYLimit = 80
+# upper limit of speed to cap weird speed values
+nUpperLimitSpeed = 5 * 120 / 105
+
+```
+
+```{r DataLoading, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+# loading the data in
+lData = fParseTrackingDataBothTeams(
+   cRootPath = cDataRootFolder,
+   cGameName = cGameName,
+   nXLimit = nXLimit,
+   nYLimit = nYLimit,
+   xMaxBB = 1,
+   yMaxBB = 1,
+   nUpperLimitSpeed = nUpperLimitSpeed
+)
+
+```
+
+
+```{r CalculatingDistances, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+dtSocialDistancing = rbindlist(
+   lapply(
+      lData$dtTrackingData[, seq(ceiling(max(Frame) / 100))],
+      function( iFrame ) {
+         
+         print(iFrame)
+         
+         dtSubset = lData$dtTrackingData[
+            Frame %in% (1 + (100 * (iFrame-1))):(100 * (iFrame))
+         ][
+            Player != 'Ball'
+         ]
+         
+         dtSubset = merge(
+            dtSubset[, list(Frame, Player, X, Y)],
+            dtSubset[, list(Frame, Player, X, Y)],
+            'Frame',
+            allow.cartesian = T
+         )
+         
+         dtSubset = dtSubset[Player.x != Player.y]
+         
+         dtSubset[, 
+            Distance := (
+               ( ( X.x - X.y ) ^ 2 ) +
+               ( ( Y.x - Y.y ) ^ 2 )
+            ) ^ 0.5
+         ]
+         
+         dtSubset = dtSubset[Distance < 7]
+         
+         dtSubset
+         
+      }
+      
+   )
+)
+
+
+setorder(
+   dtSocialDistancing,
+   Player.x,
+   Player.y,
+   Frame
+)
+
+dtSocialDistancing[, Stretch2 := (c(1, diff(Frame) > 25)), list(Player.x, Player.y)]
+dtSocialDistancing[, Stretch := cumsum(c(1, diff(Frame) > 25)), list(Player.x, Player.y)]
+
+```
+
+```{r TotalTimeSpent, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+ggplot(
+   dtSocialDistancing[, list(TimeSpentWithin6Feet = .N * 0.04), list(Player.x, Player.y)]
+) + 
+   geom_tile(
+      aes(
+         x = Player.x,
+         y = Player.y,
+         alpha = TimeSpentWithin6Feet / 60
+      ),
+      fill = 'red',
+      color = 'black'
+   ) +
+   geom_text(
+      aes(
+         x = Player.x,
+         y = Player.y,
+         label = round(TimeSpentWithin6Feet / 60)
+      )
+   ) +
+   coord_fixed() +
+   theme(
+      axis.text.x = element_text(angle = 90)
+   ) +
+   scale_alpha_continuous(guide = F) +
+   labs(
+      title = 'Minutes spent within ~6 feet of each other ',
+      x = NULL,
+      y = NULL,
+      caption = '- @thecomeonman'
+   )
+
+```
+
+```{r TotalOccurrences, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+ggplot(
+   dtSocialDistancing[, list(Occurrence = length(unique(Stretch))), list(Player.x, Player.y)]
+) + 
+   geom_tile(
+      aes(
+         x = Player.x,
+         y = Player.y,
+         alpha = Occurrence
+      ),
+      fill = 'red',
+      color = 'black'
+   ) +
+   geom_text(
+      aes(
+         x = Player.x,
+         y = Player.y,
+         label = Occurrence
+      ),
+      size = 2
+   ) +
+   coord_fixed() +
+   theme(
+      axis.text.x = element_text(angle = 90)
+   ) +
+   scale_alpha_continuous(guide = F) +
+   labs(
+      title = 'Instances of being within ~6 feet of each other ',
+      x = NULL,
+      y = NULL,
+      caption = '- @thecomeonman'
+   )
+
+```
+
+```{r TotalTimeSpentContinuous, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+ggplot(
+   dtSocialDistancing[, list(Duration = .N * 0.04), list(Stretch, Player.x, Player.y)]
+) + 
+   geom_jitter(aes(x = Player.x, y = Duration / 60), width = 0.2) +
+   geom_text_repel(
+      data = dtSocialDistancing[, list(Duration = .N * 0.04), list(Stretch, Player.x, Player.y)][Duration > 60],
+      aes(
+         x = Player.x,
+         y = Duration / 60,
+         label = Player.y
+      )
+   ) +
+   labs(
+      title = 'Minutes spent within ~6 feet of any other player',
+      x = NULL,
+      y = NULL,
+      caption = '- @thecomeonman'
+   ) +
+   theme(
+      axis.text.x = element_text(angle = 90)
+   )
+
+
+```
+
+```{r LongestStretch, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+
+dtLongestStretch = dtSocialDistancing[, list(Duration = .N * 0.04), list(Stretch, Player.x, Player.y)][which.max(Duration), list(Player.x, Player.y, Stretch)]
+
+p1 = ggplot(
+   lData$dtTrackingData[
+      Frame %in% merge(
+         dtLongestStretch,
+         dtSocialDistancing,
+         c('Player.x', 'Player.y', 'Stretch')
+      )[, Frame]
+   ][
+      Player %in% dtLongestStretch[, c(Player.x, Player.y)]
+   ]
+) + 
+   geom_path(aes(x = X, y = Y, group = Player, color = Player)) +
+   labs(
+      title = merge(
+         dtLongestStretch,
+         dtSocialDistancing,
+         c('Player.x', 'Player.y', 'Stretch')
+      )[, paste0('Longest stretch of staying in each other\'s vicinty: from frame ', min(Frame), ' to frame ', max(Frame))],
+      caption = '- @thecomeonman'
+   )
+
+p1 = fAddPitchLines(
+   p1,
+   nXLimit = nXLimit, 
+   nYLimit = nYLimit, 
+   cLineColour = 'black', 
+   cPitchColour = NA
+) +
+   theme_pitch()
+
+p1
