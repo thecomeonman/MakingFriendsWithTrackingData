@@ -1,0 +1,351 @@
+---
+title: "k-means on Player and Ball Coordinates"
+date: "30/05/2020"
+output: md_document
+---
+
+## Before you begin:
+
+Before attempting to run this code, follow the instructions at 
+https://github.com/thecomeonman/CodaBonito to install some dependencies.
+
+Also get the tracking data, recently made public as part of the Friends of 
+Tracking sessions by Metrica from here - https://github.com/metrica-sports/sample-data
+
+```{r Setup, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+library(CodaBonito)
+library(data.table)
+library(ggplot2)
+library(ggrepel)
+library(zoo)
+library(clue)
+theme_set(theme_bw(12))
+
+rm(list = ls())
+
+# Instructions
+# You would have downloaded and saved the data from Github at some location on
+# your system. In my case, it's /media/ask/Data/Personal/Projects/Personal/sample-data
+# Replace the location below with the respective location from your machine
+cDataRootFolder = '/media/ask/Data/Personal/Projects/Personal/sample-data/data/'
+cGameName = 'Sample_Game_2'
+cTeam = 'Home'
+nXLimit = 120
+nYLimit = 80
+# upper limit of speed to cap weird speed values
+nUpperLimitSpeed = 5 * 120 / 105
+
+
+dtPlayerLabels = data.table(
+   Player = c(
+     paste0('HomePlayer', 1:11)
+   ),
+   Label = c(
+     'RB','RCB','LCB','LB','RW','RCM','LCM','LW','SS','CF','GK'
+   )
+)
+```
+
+```{r DataLoading, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+# loading the data in
+lData = fParseTrackingDataBothTeams(
+   cRootPath = cDataRootFolder,
+   cGameName = cGameName,
+   nXLimit = nXLimit,
+   nYLimit = nYLimit,
+   xMaxBB = 1,
+   yMaxBB = 1,
+   nUpperLimitSpeed = nUpperLimitSpeed
+)
+
+```
+ 
+ 
+```{r DataPrep, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+viTrackingFrames = lData$dtTrackingData[Player == 'Ball', unique(Frame)]
+
+# keeping frames till the first 11 played
+viTrackingFrames = viTrackingFrames[
+  viTrackingFrames < lData$dtTrackingData[Tag == cTeam][, max(Frame), Player][, min(V1)]
+]
+
+# inferring which team was in control of the ball
+dtAttackingTeam = merge(
+   lData$dtEventsData[
+       Type %in% c("PASS", "SHOT", "SET PIECE", "RECOVERY") |
+       Subtype %in% c("GOAL KICK", "KICK OFF"),
+       list(AttackingTeam = Team[1]),
+       list(Frame = StartFrame, EndFrame)
+   ],
+   data.table(Frame = viTrackingFrames),
+   'Frame',
+   all = T
+)
+
+dtAttackingTeam[is.na(EndFrame), EndFrame := Frame]
+
+dtAttackingTeam = dtAttackingTeam[,
+   .SD[which.max(EndFrame)],
+   list(Frame)
+][,
+   AttackingTeam := na.locf(AttackingTeam, na.rm = F)
+]
+
+dtAttackingTeam = dtAttackingTeam[
+   Frame %in% viTrackingFrames
+]
+
+# keeping only frames in which the team was attacking
+viTrackingFrames = dtAttackingTeam[
+   AttackingTeam == cTeam, Frame
+]
+
+
+# keeping only frames in which the team was attacking
+if ( T ) {
+   
+   dtSocialDistancing = lData$dtTrackingData[
+      Frame %in% viTrackingFrames
+   ][
+      Tag %in% c(cTeam, 'Ball')
+   ][,
+      list(
+         Frame, Player, X, Y
+      )
+   ]
+   
+   if ( F ) {
+         
+      dtSocialDistancing[,
+         X := X - X[Player == 'Ball'],
+         Frame
+      ]
+      
+      dtSocialDistancing[,
+         Y := Y - Y[Player == 'Ball'],
+         Frame
+      ]
+      
+   }
+   
+   dtSocialDistancingWide = merge(
+      dcast(dtSocialDistancing, Frame ~ Player, value.var = 'X'),
+      dcast(dtSocialDistancing, Frame ~ Player, value.var = 'Y'),
+      'Frame'
+   )
+
+}
+
+```
+ 
+ 
+```{r Clustering, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+kmeansInteractions = kmeans(
+   dtSocialDistancingWide[, 
+      !c(
+         'Frame',
+         # 'Ball.x','Ball.y',
+         ''
+      ), 
+      with = F
+   ], 
+   centers = 48
+)
+
+dtSocialDistancingWide[, Cluster := cl_predict(kmeansInteractions)]
+
+
+
+
+
+
+```
+ 
+ 
+```{r PrintingRresults, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 10}
+# plot 12 clusters at a time in 4 batches
+
+HowManyAtATime = 12
+
+for ( iPart in 1:4 ) {
+   
+   qwe = merge(
+     lData$dtTrackingData[Tag %in% c('Ball', cTeam)],
+     dtSocialDistancingWide[, list(Frame, Cluster)],
+     'Frame'
+   )
+   
+   qwe = merge(
+      qwe,
+      dtPlayerLabels,
+      'Player',
+      all.x = T
+   )
+   
+   qwe[Player != 'Ball', Player := Label]
+   qwe[, Label := NULL]
+   
+   qweOccurrence = merge(
+      qwe[, list(Instance = 1 + sum(diff(sort(unique(Frame))) > 100)), Cluster],
+      qwe[, .N, Cluster][, list(Cluster, Time_pct = round(N / sum(N), 2) * 100)],
+      'Cluster'
+   )
+   
+   qweOccurrence[, Cluster2 := 1 + .N - rank(Instance, ties.method = 'random')]
+   
+   qwe = merge(
+      qwe,
+      qweOccurrence[, list(Cluster, Cluster2)],
+      'Cluster'
+   )
+   
+   qwe[, Cluster := Cluster2]
+   qwe[, Cluster2 := NULL]
+   qweOccurrence[, Cluster := Cluster2]
+   qweOccurrence[, Cluster2 := NULL]
+   
+   qwe = qwe[,
+    .SD[Frame %in% sample(unique(Frame), min(length(unique(Frame)), 10))],
+    Cluster
+   ]
+   
+   if ( F ) {
+         
+      qwe[,
+         X := X - X[Player == 'Ball'],
+         Frame
+      ]
+      
+      qwe[,
+         Y := Y - Y[Player == 'Ball'],
+         Frame
+      ]
+      
+   }
+   
+   qweHull = qwe[,
+     .SD[chull(X,Y)],
+     list(Player, Cluster)
+   ]
+   
+   
+   
+   
+   
+   
+   
+   qwe = qwe[Cluster %in% (c(1:HowManyAtATime) + ((iPart-1) * HowManyAtATime))]
+   qweOccurrence = qweOccurrence[Cluster %in% (c(1:HowManyAtATime) + ((iPart-1) * HowManyAtATime))]
+
+   p1 = ggplot(
+     qwe[Tag != 'Ball']
+   )
+   
+   p1 = fAddPitchLines(p1, cLineColour = '#aaaaaa', cPitchColour = NA)
+   
+   p1 = p1 + 
+     # geom_hline(yintercept = 0) +
+     # geom_vline(xintercept = 0) +
+     # geom_polygon(
+     #    data = qweHull[Tag != 'Ball'],
+     #    aes(
+     #      x = X,
+     #      y = Y,
+     #      group = Player,
+     #      color = Player
+     #    ),
+     #    fill = NA,
+     #    alpha = 0.1
+     #  ) + 
+      # geom_point(
+      #   aes(
+      #     x = X,
+      #     y = Y,
+      #     color = Player
+      #   ),
+      #   alpha = 0.1
+      # ) +
+      # geom_density_2d(
+      #   data = qwe[
+      #      Tag != 'Ball'
+      #   ],
+      #   aes(
+      #     x = X,
+      #     y = Y,
+      #     color = Player,
+      #     group = paste(Player, Cluster)
+      #   ),
+      #   size = 2
+      # ) +
+      # geom_point(
+      #   data = qwe[
+      #      Tag != 'Ball'
+      #   ][, list(X = mean(X), Y = mean(Y)), list(Cluster, Player)],
+      #   aes(
+      #     x = X,
+      #     y = Y
+      #     
+      #   ),
+      #   size = 4
+      # ) +
+      # geom_point(
+      #   data = qwe[
+      #      Tag != 'Ball'
+      #   ][, list(X = mean(X), Y = mean(Y)), list(Cluster, Player)],
+      #   aes(
+      #     x = X,
+      #     y = Y,
+      #     # color = Player
+      #   ),
+      #   size = 3
+      # ) +
+      geom_point(
+        data = qwe[
+           Tag == 'Ball'
+        ][, list(X = mean(X), Y = mean(Y)), list(Cluster, Player)],
+        aes(
+          x = X,
+          y = Y
+        ),
+        size = 2
+      ) +
+      geom_text(
+        data = qwe[
+           Tag != 'Ball'
+        ][, list(X = mean(X), Y = mean(Y)), list(Cluster, Player = gsub(Player, pattern = '.*Player', replacement = ''))],
+        aes(
+          x = X,
+          y = Y,
+          label = Player
+        ),
+        size = 3
+      ) +
+      geom_text(
+         data = qweOccurrence,
+         aes(
+            x = 0,
+            y = -5,
+            label = paste0(Time_pct,'% of the total time, ', Instance, ' instance(s)')
+         ),
+         size = 4,
+         hjust = 0
+      ) +
+      # facet_grid(Player~Cluster) +
+      scale_colour_discrete(guide = F) +
+      facet_wrap(.~Cluster, nrow = 3) +
+      geom_blank() + 
+      coord_fixed() +
+      labs(
+         title = paste0('Positions of the ', cTeam, ' players and ball in game ', cGameName,' while the ', dtAttackingTeam[Frame %in% viTrackingFrames, AttackingTeam[1]], ' team is attacking - ', iPart),
+         caption = 'by @thecomeonman',
+         subtitle = 'Results of k-means clusters on the positions of the players and the ball. Each box below is the average position of the players or the ball in the cluster.'
+      )
+   
+   print(p1)
+
+}
+```
