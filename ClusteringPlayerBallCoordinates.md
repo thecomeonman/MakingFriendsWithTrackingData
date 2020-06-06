@@ -1,18 +1,57 @@
-Before you begin:
------------------
+This is a very very very WIP post.
 
-Before attempting to run this code, follow the instructions at
-<a href="https://github.com/thecomeonman/CodaBonito" class="uri">https://github.com/thecomeonman/CodaBonito</a>
-to install some dependencies.
+Data Handling
+-------------
 
-Also get the tracking data, recently made public as part of the Friends
-of Tracking sessions by Metrica from here -
-<a href="https://github.com/metrica-sports/sample-data" class="uri">https://github.com/metrica-sports/sample-data</a>
+-   I take one in every three frames just to lower the number of frmaes
+    that need to be managed. This means there are aabout 8 frames per
+    second which is still sufficient resolution for us to run this
+    analysis.
+
+-   Players substituted for each other are treated as the same player
+    for purpose of clustering, analysis, etc.
+
+Procedure
+---------
+
+-   This post focuses on the home team attacking during sample game 2.
+
+-   Euclidean distance calculated between the players or the ball in
+    each frame and passed to a hierarchical clustering algorithm.
+
+-   I extract two levels of clusters from this, a set of 6 clusters and
+    set of 48 clusters. I call the first set of clusters, cluster
+    groups, and the second set of clusters just clusters. No strong
+    reason behind why six clusters except it’s a good balance between
+    splitting the data into an unmanageably large number of clusters and
+    not splitting it enough and being unable to infer anything out of
+    them. No strong reason behind 48 either except it’s an easy number
+    to work with.
+
+Understanding cluster groups
+----------------------------
+
+![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingClusterGroups-1.png)
+
+The six clusters broadly capture situations which are in place when the
+ball is in various parts of the field. Clusters 1 and 3 capture the two
+sides in the defensive half. Clusters 2 and 5 capture the two sides in
+the offensive half. Cluster 4 is when the ball is in midfield. Cluster 6
+is sort of inbetween clusters 4 and 5.
+
+Understanding clusters
+----------------------
+
+Diving into the smaller clusters -
 
 ![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingRresultsAttack-1.png)![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingRresultsAttack-2.png)![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingRresultsAttack-3.png)![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingRresultsAttack-4.png)
 
 Some things that you can quickly see
 ------------------------------------
+
+Note: This section hasn’t been updated for the new clusters so the
+example clusters are probably wrong but the observations should still
+hold
 
 -   They seem to either play in a 4-4-1-1 / 4-4-2, see clusters 4, 5, 7,
     8
@@ -40,14 +79,26 @@ Some things that you can quickly see
 
 -   Clusters 16, 30 might be corners
 
-![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingRresultsDefense-1.png)![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingRresultsDefense-2.png)![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingRresultsDefense-3.png)![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingRresultsDefense-4.png)
+Exploring a cluster in more detail
+----------------------------------
 
-Disclaimer
-----------
+![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/DetailedLookAtOneCluster-1.png)
 
-I usually don’t post things so early in the process but making an
-exception because I’m surprised: 1. at how informative this already is
-2. that I haven’t seen this on Twitter yet. A quick Google Scholar
-search didn’t give anything strong either
+![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/DetailedLookAtOnePlayer-1.png)
 
-Will look around some more.
+Cluster occurrence across the duration of the game
+--------------------------------------------------
+
+![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingClusterGroupsAcrossTime-1.png)
+
+There are interesting patterns in terms of how clusters occur at various
+points in the game. After pretty much each significant event, you can
+notice a change in the patterns of clusters exhibited.
+
+The flow between clusters
+-------------------------
+
+![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingClusterTransitions-1.png)![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingClusterTransitions-2.png)
+
+The team doesn’t randomly move between clusters, there are some
+transitions that occur far more frequently than others.
