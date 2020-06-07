@@ -9,7 +9,12 @@ Data Handling
     analysis.
 
 -   Players substituted for each other are treated as the same player
-    for purpose of clustering, analysis, etc.
+    for purpose of clustering, analysis, etc. This is not a great
+    assumption because players frequently substitute players who weren’t
+    playing in the same role but I don’t have a better simple way to
+    handle this yet. You could have an addition player role role
+    assignment sort of model, of which there are a few, to assign the
+    correct roles and then cluster.
 
 Procedure
 ---------
@@ -27,6 +32,11 @@ Procedure
     not splitting it enough and being unable to infer anything out of
     them. No strong reason behind 48 either except it’s an easy number
     to work with.
+
+-   Also tried clustering just the ball locations and clustering player
+    locations leaving out the GK and translating the rest of the players
+    such that the mean location of all the player in that frame was at
+    (0,0). That didn’t look as good as this.
 
 Understanding cluster groups
 ----------------------------

@@ -1,8 +1,12 @@
 ---
-title: "Clustering Player and Ball Coordinates"
+title: "k-means on Player and Ball Coordinates"
 date: "30/05/2020"
 output: md_document
 ---
+
+Differene is that in this I cluster ball coordinates sepateely and player coordinates separately.
+Player coordiantes don't have GK coordinates. They coorinates are readjusted so that the CoG is at (0,0).
+Results didn't look great in the first go.
 
 This is a very very very WIP post.
 
@@ -10,7 +14,7 @@ This is a very very very WIP post.
 
 - I take one in every three frames just to lower the number of frmaes that need to be managed. This means there are aabout 8 frames per second which is still sufficient resolution for us to run this analysis.
 
-- Players substituted for each other are treated as the same player for purpose of clustering, analysis, etc. This is not a great assumption because players frequently substitute players who weren't playing in the same role but I don't have a better simple way to handle this yet. You could have an addition player role role assignment sort of model, of which there are a few, to assign the correct roles and then cluster.
+- Players substituted for each other are treated as the same player for purpose of clustering, analysis, etc.
 
 ## Procedure
 
@@ -19,8 +23,6 @@ This is a very very very WIP post.
 - Euclidean distance calculated between the players or the ball in each frame and passed to a hierarchical clustering algorithm.
 
 - I extract two levels of clusters from this, a set of 6 clusters and set of 48 clusters. I call the first set of clusters, cluster groups, and the second set of clusters just clusters. No strong reason behind why six clusters except it's a good balance between splitting the data into an unmanageably large number of clusters and not splitting it enough and being unable to infer anything out of them. No strong reason behind 48 either except it's an easy number to work with.
-
-- Also tried clustering just the ball locations and clustering player locations leaving out the GK and translating the rest of the players such that the mean location of all the player in that frame was at (0,0). That didn't look as good as this.
 
 ```{r Setup, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
 
@@ -72,11 +74,11 @@ lData = fParseTrackingDataBothTeams(
    nUpperLimitSpeed = nUpperLimitSpeed
 )
 
-dtSubstitutions = lData$dtTrackingData[, 
+dtSubstitutions = lData$dtTrackingData[,
    list(
-      StartFrame = min(Frame), 
+      StartFrame = min(Frame),
       EndFrame = max(Frame)
-   ), 
+   ),
    list(Tag, Player)
 ][
    !(StartFrame == 1 & EndFrame == max(EndFrame))
@@ -93,34 +95,34 @@ setorder( dtSubstitutions, Frame )
 lData$dtTrackingData[, Player2 := as.character(NA)]
 
 for ( i in seq(nrow(dtSubstitutions)) ) {
-   
+
    cNewPlayerName = lData$dtTrackingData[
       Player %in% dtSubstitutions[i, c(PlayerOut, PlayerIn)],
    ][
       !is.na(Player2),
       Player2[1]
    ]
-   
+
    if ( is.na(cNewPlayerName) ) {
-      
+
       cNewPlayerName = paste0(
-         dtSubstitutions[i, Tag], 
-         'Player', 
+         dtSubstitutions[i, Tag],
+         'Player',
          dtSubstitutions[i, paste(gsub(x = c(PlayerOut,PlayerIn), pattern = '.*Player', replacement = ''), collapse = '.')]
       )
-      
+
    }
-   
+
    lData$dtTrackingData[
       Player %in% dtSubstitutions[i, c(PlayerOut, PlayerIn)],
       Player2 := cNewPlayerName
    ]
-   
+
    dtPlayerLabels[
       Player %in% dtSubstitutions[i, c(PlayerOut, PlayerIn)],
       Player2 := cNewPlayerName
    ]
-   
+
 }
 
 lData$dtTrackingData[
@@ -142,8 +144,8 @@ dtPlayerLabels[,
 ]
 
 ```
- 
- 
+
+
 ```{r DataPrepAttack, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
 
 viTrackingFrames = lData$dtTrackingData[Player == 'Ball', unique(Frame)]
@@ -183,15 +185,18 @@ lData$dtTrackingData = lData$dtTrackingData[
 ```
 
 
- 
-```{r DistanceCalculation, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
-WhatTypeOfDistance = 'Absolute'
 
+# Type 2
+
+
+
+```{r DistanceCalculation, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+WhatTypeOfDistance = 'CentredWOGK'
 cOutputFolder = paste0(
    cOutputFolderRoot,
-   '/DistanceMatrices/', WhatTypeOfDistance
+   '/DistanceMatrices/',
+   WhatTypeOfDistance
 )
-
 
 dir.create(
    cOutputFolder,
@@ -200,33 +205,33 @@ dir.create(
 )
 
 if ( T ) {
-      
+
    iFrameBucketSpan = 300
-   
+
    dtDistances = lapply(
-      rev(seq(ceiling(length(viTrackingFrames)/iFrameBucketSpan))),
+      (seq(ceiling(length(viTrackingFrames)/iFrameBucketSpan))),
       function ( iFrameWindowIndex ) {
-         
+
          for ( cAttackingTeam in dtAttackingTeam[, unique(AttackingTeam)] ) {
-            
+
             for ( cTag in lData$dtTrackingData[, unique(Tag)] ) {
-                  
+
                dir.create(
                   paste0(cOutputFolder, '/', cTag, '/', cAttackingTeam),
                   showWarnings = F,
                   recursive = T
                )
-               
+
                cFileName = paste0(
                   cOutputFolder, '/', cTag, '/', cAttackingTeam, '/', iFrameWindowIndex,'.Rdata'
                )
-               
+
                if ( !file.exists(cFileName) ) {
-                  
+
                   print(Sys.time())
                   print(cTag)
                   print( iFrameWindowIndex / ( length(viTrackingFrames) / iFrameBucketSpan) )
-                  
+
                   viFrames = viTrackingFrames[(((iFrameWindowIndex - 1) * iFrameBucketSpan ) + 1):( (iFrameWindowIndex) * iFrameBucketSpan )]
                   viFrames = dtAttackingTeam[
                      AttackingTeam == cAttackingTeam,
@@ -234,17 +239,19 @@ if ( T ) {
                         Frame, viFrames
                      )
                   ]
-                  
+
                   if ( length(viFrames) > 0 ) {
-                     
-                     dtTrackingDataSubset = lData$dtTrackingData[ 
-                        Frame %in% viFrames 
+
+                     dtTrackingDataSubset = lData$dtTrackingData[
+                        Frame %in% viFrames
                      ][
                         Tag %in% c(cTag)
-                     ][, 
+                     ][
+                        !Player %in% dtPlayerLabels[Label == 'GK', Player]
+                     ][,
                         list(Tag, Frame, Player, X, Y)
                      ]
-                     
+
                      dtDistances = merge(
                         dtTrackingDataSubset,
                         lData$dtTrackingData[
@@ -256,7 +263,7 @@ if ( T ) {
                               AttackingTeam == cAttackingTeam,
                               Frame
                            ]
-                        ][, 
+                        ][,
                            list(Frame, Player, X, Y)
                         ],
                         c('Player'),
@@ -264,162 +271,169 @@ if ( T ) {
                      )[
                         Frame.x >= Frame.y
                      ]
-                     
+
+                     if ( !cTag %in% 'Ball' ) {
+                        dtDistances[, X.x := X.x - mean(X.x), list(Frame.x)]
+                        dtDistances[, X.y := X.y - mean(X.y), list(Frame.x)]
+                        dtDistances[, Y.x := Y.x - mean(Y.x), list(Frame.y)]
+                        dtDistances[, Y.y := Y.y - mean(Y.y), list(Frame.y)]
+                     }
+
                      if ( nrow(dtDistances) > 0 ) {
-                        
+
                         print(dtDistances[, range(Frame.x)])
-                        
+
                         dtDistances[,
-                           Distance := 
+                           Distance :=
                               ( ( X.x - X.y ) ^ 2 ) +
                               ( ( Y.x - Y.y ) ^ 2 )
                         ]
-                        
-                        dtDistances = dtDistances[, 
+
+                        dtDistances = dtDistances[,
                            list(
                               Distance = sum(Distance) ^ 0.5,
                               Items = .N
                            ),
                            list(Frame.x, Frame.y)
                         ]
-                        
+
                         gc()
-                           
+
                      } else {
-                        
+
                         dtDistances = data.table()
-                     
+
                      }
-                     
+
                   } else {
-                     
+
                      dtDistances = data.table()
-                  
+
                   }
-                  
+
                   save(
                      list = 'dtDistances',
                      file = cFileName
                   )
-                  
+
                }
-               
+
             }
          }
-         
+
          NULL
-         
+
       }
    )
-   
+
    rm(dtDistances)
-   
+
 }
 
 
 ```
 
 
- 
-```{r DataPostProcessAttack, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+```{r DataPostProcessAttackTeam, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
 
 if ( T ) {
-   
-   cTagsToCapture = c(cTeam, 'Ball')
+
+   cTagsToCapture = c(cTeam)
    cAttackingTeam = cTeam
-   
+
    vcFiles = c(
       list.files(paste0(cOutputFolder, '/',cTeam,'/', cAttackingTeam), recursive = T)
    )
-   
+
    cFileName = paste0('/media/ask/Data/Personal/tmp/trackingclustering.', WhatTypeOfDistance, '.', cGameName, '.', cAttackingTeam, '.', paste(sort(cTagsToCapture), collapse = ''), '.Rdata')
-   
+
    if ( file.exists(cFileName) ) {
-      
+
       load(cFileName)
-      
+
    } else {
-      
+
       dtDistances = rbindlist(
          lapply(
             vcFiles,
             function(cFile) {
-               
+
                if ( interactive() ) {
                   print(cFile)
                }
-               
+
                dtDistances = rbindlist(
                   lapply(
                      cTagsToCapture,
                      function (cTagToCapture) {
-                        
+
                         load(paste0(cOutputFolder, '/', cTagToCapture, '/', cAttackingTeam, '/', cFile))
-                        
+
                         if ( nrow(dtDistances) > 0 ) {
-                           
+
                            # print(head(dtDistances))
-                           
+
                            if ( cTagToCapture %in% c('Home','Away') ) {
                               dtDistances[, Distance := ( 11 * ( Distance ^ 2 ) / Items ) ^ 0.5]
                               dtDistances[, Items := 11]
                            }
-                           
+
                            dtDistances[, Tag := cTagToCapture]
-                           
+
                         } else {
-                           
+
                            dtDistances = data.table()
-                           
+
                         }
-                        
+
                         dtDistances
-                        
+
                      }
                   ),
                   fill = T
                )
-               
+
                if ( nrow( dtDistances ) > 0 ) {
-                  
+
                   dtDistances = dtDistances[, sum(Distance^2)^0.5, list(Frame.x, Frame.y)]
-                  
+
                   dtDistances = dcast(
                      dtDistances,
                      Frame.x ~ Frame.y,
                      fun.aggregate = mean,
                      value.var = 'V1'
                   )
-                  
+
                }
-               
+
                dtDistances
-               
+
             }
-            
+
          ),
          fill = T
       )
-      
+
       save(
          list = 'dtDistances',
          file = cFileName
       )
-      
+
    }
-   
+
    dtDistances = dtDistances[order(as.integer(Frame.x))]
-   
+
    setcolorder(
       dtDistances,
       c('Frame.x', dtDistances[, Frame.x])
    )
-   
-   if ( F ) { 
-      
+
+   if ( F ) {
+
       cAttackingTeam = 'Home'
       for ( cTagToCapture in c('Home','Away','Ball') ) {
-         
+
           for ( cFile in vcFiles ) {
               if(file.exists(paste0(cOutputFolder, '/', cTagToCapture, '/', cAttackingTeam, '/', cFile))) {
           load(paste0(cOutputFolder, '/', cTagToCapture, '/', cAttackingTeam, '/', cFile))
@@ -431,228 +445,503 @@ if ( T ) {
               }
           }
       }
-            
+
    }
-   
+
    if ( F ) {
-      
+
       for ( i in 1:nrow(dtDistances) ) {
           if ( any(is.na(
              dtDistances[i,2:(i+1)]
           )) ) stop()
       }
-      
+
    }
-   
+
 }
 
 ```
 
 
- 
-```{r ClusteringAttack, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+```{r ClusteringAttackTeam, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
 
 if ( F ) {
-   
+
    set.seed(1)
-      
+
    kmeansInteractions = kmeans(
-      dtSocialDistancingWide[, 
+      dtSocialDistancingWide[,
          !c(
             'Frame',
             # 'Ball.x','Ball.y',
             ''
-         ), 
+         ),
          with = F
-      ], 
+      ],
       centers = 48
    )
-   
+
    dtSocialDistancingWide[, Cluster := cl_predict(kmeansInteractions)]
 
 }
 
 if ( T ) {
-   
+
    hcModel = hclust(
       # dist(dtSocialDistancingWide[
-      #    Frame == min(Frame) | Frame %% 2 == 0, 
+      #    Frame == min(Frame) | Frame %% 2 == 0,
       #    !c('Frame','Stretch','Cluster')
       # ]),
       as.dist(
          dtDistances[
             # Frame.x <= 95703
          ][, !'Frame.x', with = F][
-            # 1:.N, 
+            # 1:.N,
             # 1:dtDistances[, max(which(Frame.x <= 95703))]
          ],
          diag = T
       ),
       method = 'ward.D2'
    )
-   
-   dtClusterResults = data.table(
+
+   dtClusterResultsThis = data.table(
       Frame = dtDistances[
          # Frame.x <= 95703
          , Frame.x
       ],
       # ClusterGroup := cutree(hcModel, k = 1 + max(which((diff(rev(hcModel$height)[1:50])) < -500)))
-      ClusterGroup = cutree(hcModel, k = 6), 
+      ClusterGroup = cutree(hcModel, k = 6),
       Cluster = cutree(hcModel, k = 48)
    )[,
       ClusterGroup.Cluster := paste0(ClusterGroup, '.', Cluster)
    ]
-   
+
    setorder(
-      dtClusterResults,
+      dtClusterResultsThis,
       Frame
    )
-   
-   dtClusterResults[, Instance := cumsum(c(1, diff(Frame) > 100)), Cluster]
-   
+
+   dtClusterResultsThis[, Instance := cumsum(c(1, diff(Frame) > 100)), Cluster]
+
+
+   if ( exists('dtClusterResults') ) {
+
+      dtClusterResults = merge(
+         dtClusterResults,
+         dtClusterResultsThis,
+         'Frame',
+         all = T
+      )
+
+   } else {
+
+      dtClusterResults = dtClusterResultsThis
+
+   }
+
    rm(dtDistances)
-   
+
    # dtSocialDistancingWide[, Cluster := na.locf(Cluster, na.rm = F)]
 
 }
 
+```
 
+
+
+
+```{r DataPostProcessAttackBall, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+if ( T ) {
+
+   cTagsToCapture = c('Ball')
+   cAttackingTeam = cTeam
+
+   vcFiles = c(
+      list.files(paste0(cOutputFolder, '/',cTeam,'/', cAttackingTeam), recursive = T)
+   )
+
+   cFileName = paste0('/media/ask/Data/Personal/tmp/trackingclustering.', WhatTypeOfDistance, '.', cGameName, '.', cAttackingTeam, '.', paste(sort(cTagsToCapture), collapse = ''), '.Rdata')
+
+   if ( file.exists(cFileName) ) {
+
+      load(cFileName)
+
+   } else {
+
+      dtDistances = rbindlist(
+         lapply(
+            vcFiles,
+            function(cFile) {
+
+               if ( interactive() ) {
+                  print(cFile)
+               }
+
+               dtDistances = rbindlist(
+                  lapply(
+                     cTagsToCapture,
+                     function (cTagToCapture) {
+
+                        load(paste0(cOutputFolder, '/', cTagToCapture, '/', cAttackingTeam, '/', cFile))
+
+                        if ( nrow(dtDistances) > 0 ) {
+
+                           # print(head(dtDistances))
+
+                           if ( cTagToCapture %in% c('Home','Away') ) {
+                              dtDistances[, Distance := ( 11 * ( Distance ^ 2 ) / Items ) ^ 0.5]
+                              dtDistances[, Items := 11]
+                           }
+
+                           dtDistances[, Tag := cTagToCapture]
+
+                        } else {
+
+                           dtDistances = data.table()
+
+                        }
+
+                        dtDistances
+
+                     }
+                  ),
+                  fill = T
+               )
+
+               if ( nrow( dtDistances ) > 0 ) {
+
+                  dtDistances = dtDistances[, sum(Distance^2)^0.5, list(Frame.x, Frame.y)]
+
+                  dtDistances = dcast(
+                     dtDistances,
+                     Frame.x ~ Frame.y,
+                     fun.aggregate = mean,
+                     value.var = 'V1'
+                  )
+
+               }
+
+               dtDistances
+
+            }
+
+         ),
+         fill = T
+      )
+
+      save(
+         list = 'dtDistances',
+         file = cFileName
+      )
+
+   }
+
+   dtDistances = dtDistances[order(as.integer(Frame.x))]
+
+   setcolorder(
+      dtDistances,
+      c('Frame.x', dtDistances[, Frame.x])
+   )
+
+   if ( F ) {
+
+      cAttackingTeam = 'Home'
+      for ( cTagToCapture in c('Home','Away','Ball') ) {
+
+          for ( cFile in vcFiles ) {
+              if(file.exists(paste0(cOutputFolder, '/', cTagToCapture, '/', cAttackingTeam, '/', cFile))) {
+          load(paste0(cOutputFolder, '/', cTagToCapture, '/', cAttackingTeam, '/', cFile))
+          if ( 'MeanDistance' %in% colnames(dtDistances) ) {
+              print(cFile)
+              file.remove(paste0(cOutputFolder, '/', cTagToCapture, '/', cAttackingTeam, '/', cFile))
+          }
+          rm(dtDistances)
+              }
+          }
+      }
+
+   }
+
+   if ( F ) {
+
+      for ( i in 1:nrow(dtDistances) ) {
+          if ( any(is.na(
+             dtDistances[i,2:(i+1)]
+          )) ) stop()
+      }
+
+   }
+
+}
+
+```
+
+```{r ClusteringAttackBall, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+
+if ( F ) {
+
+   set.seed(1)
+
+   kmeansInteractions = kmeans(
+      dtSocialDistancingWide[,
+         !c(
+            'Frame',
+            # 'Ball.x','Ball.y',
+            ''
+         ),
+         with = F
+      ],
+      centers = 48
+   )
+
+   dtSocialDistancingWide[, Cluster := cl_predict(kmeansInteractions)]
+
+}
+
+if ( T ) {
+
+   hcModel = hclust(
+      # dist(dtSocialDistancingWide[
+      #    Frame == min(Frame) | Frame %% 2 == 0,
+      #    !c('Frame','Stretch','Cluster')
+      # ]),
+      as.dist(
+         dtDistances[
+            # Frame.x <= 95703
+         ][, !'Frame.x', with = F][
+            # 1:.N,
+            # 1:dtDistances[, max(which(Frame.x <= 95703))]
+         ],
+         diag = T
+      ),
+      method = 'ward.D2'
+   )
+
+   dtClusterResultsThis = data.table(
+      Frame = dtDistances[
+         # Frame.x <= 95703
+         , Frame.x
+      ],
+      # ClusterGroup := cutree(hcModel, k = 1 + max(which((diff(rev(hcModel$height)[1:50])) < -500)))
+      ClusterGroup = cutree(hcModel, k = 6),
+      Cluster = cutree(hcModel, k = 48)
+   )[,
+      ClusterGroup.Cluster := paste0(ClusterGroup, '.', Cluster)
+   ]
+
+   setorder(
+      dtClusterResultsThis,
+      Frame
+   )
+
+   dtClusterResultsThis[, Instance := cumsum(c(1, diff(Frame) > 100)), Cluster]
+
+
+   if ( exists('dtClusterResults') ) {
+
+      dtClusterResults = merge(
+         dtClusterResults,
+         dtClusterResultsThis,
+         'Frame',
+         all = T
+      )
+
+   } else {
+
+      dtClusterResults = dtClusterResultsThis
+
+   }
+
+   rm(dtDistances)
+
+   # dtSocialDistancingWide[, Cluster := na.locf(Cluster, na.rm = F)]
+
+}
 
 ```
 
 ## Understanding cluster groups
- 
-```{r PrintingClusterGroups, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 10}
+
+```{r PrintingClusterGroupsBall, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 10}
 
 p1 = ggplot(
    merge(
-      dtClusterResults[!is.na(Cluster)],
+      dtClusterResults[!is.na(Cluster.y), list(Cluster = Cluster.y, ClusterGroup = ClusterGroup.y , Frame)],
       lData$dtTrackingData[Tag == 'Ball', list(Frame, X, Y)],
       'Frame'
    )
 )
 p1 = fAddPitchLines(p1, cLineColour = '#aaaaaa', cPitchColour = NA)
-p1 = p1+ 
+p1 = p1+
    geom_point(aes(x = X, y = Y, color = factor(ClusterGroup))) +
    labs(
       title = 'Where the ball was in each cluster'
    )
 
-p1 = p1 + 
+p1 = p1 +
    facet_wrap(~ClusterGroup)
 
 # to do add events to timeline
 
 print(p1)
 ```
- 
-The six clusters broadly capture situations which are in place when the ball is in various parts of the field. 
-Clusters 1 and 3 capture the two sides in the defensive half. Clusters 2 and 5 capture the two sides in the 
+
+```{r PrintingClusterGroupsTeam, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 10}
+
+p1 = ggplot(
+   merge(
+      merge(
+         dtClusterResults[!is.na(Cluster.y), list(Cluster = Cluster.y, ClusterGroup = ClusterGroup.y , Frame)],
+         lData$dtTrackingData[Tag != 'Ball'][Tag == cTeam][Player != dtPlayerLabels[Label == 'GK'][, Player]],
+         'Frame'
+      )[,
+         list(
+            Player, X = X - mean(X),
+            Y = Y - mean(Y)
+         ),
+         list(ClusterGroup, Frame)
+      ][,
+         list(
+            X = mean(X),
+            Y = mean(Y)
+         ),
+         list(ClusterGroup, Player)
+      ],
+      dtPlayerLabels,
+      'Player'
+   )
+) +
+   coord_fixed()
+
+p1 = p1+
+   geom_text(
+      aes(
+         x = X,
+         y = Y,
+         color = factor(ClusterGroup),
+         label = Label
+      )
+   ) +
+   labs(
+      title = 'Where the ball was in each cluster'
+   )
+
+p1 = p1 +
+   facet_wrap(~ClusterGroup)
+
+# to do add events to timeline
+
+print(p1)
+```
+
+The six clusters broadly capture situations which are in place when the ball is in various parts of the field.
+Clusters 1 and 3 capture the two sides in the defensive half. Clusters 2 and 5 capture the two sides in the
 offensive half. Cluster 4 is when the ball is in midfield. Cluster 6 is sort of inbetween clusters 4 and 5.
 
 ## Understanding clusters
 
 Diving into the smaller clusters -
- 
+
 ```{r PrintingRresultsAttack, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 10}
 # plot 12 clusters at a time in 4 batches
 
 HowManyAtATime = 12
 
 for ( iPart in 1:4 ) {
-   
+
    dtChartData = merge(
      lData$dtTrackingData[Tag %in% c('Ball', cTeam)],
-     dtClusterResults[, list(Frame, ClusterGroup, Cluster, ClusterGroup.Cluster, Instance)],
+     dtClusterResults[, list(Frame, ClusterGroup = ClusterGroup.x, Cluster = Cluster.x, ClusterGroup.Cluster = ClusterGroup.Cluster.x, Instance = Instance.y)],
+     # dtClusterResults[, list(Frame, ClusterGroup, Cluster, ClusterGroup.Cluster, Instance)],
      'Frame'
    )
-   
+
    dtChartData = merge(
       dtChartData,
       dtPlayerLabels,
       'Player',
       all.x = T
    )
-   
+
    dtChartData[Player != 'Ball', Player := Label]
    dtChartData[, Label := NULL]
-   
-   dtChartDataOccurrence = dtChartData[, 
+
+   dtChartDataOccurrence = dtChartData[,
       list(
-         Instance = length(unique(Instance)), 
+         Instance = length(unique(Instance)),
          .N
-      ), 
+      ),
       list(
          ClusterGroup, Cluster, ClusterGroup.Cluster
       )
+   ][,
+      list(ClusterGroup, Cluster, ClusterGroup.Cluster, Instance, Time_pct = round(N / sum(N), 2) * 100)
    ]
-   
-   dtChartDataOccurrence[, 
-      Time_pct := round(N / sum(N), 2) * 100
-   ]
-   
+
    if ( F ) {
-      
+
       dtChartDataOccurrence[, Cluster2 := 1 + .N - rank(Instance, ties.method = 'random')]
-      
+
       dtChartData = merge(
          dtChartData,
          dtChartDataOccurrence[, list(Cluster, Cluster2)],
          'Cluster'
       )
-      
+
       dtChartData[, Cluster := Cluster2]
       dtChartData[, Cluster2 := NULL]
       dtChartDataOccurrence[, Cluster := Cluster2]
       dtChartDataOccurrence[, Cluster2 := NULL]
-      
+
    }
-   
+
    dtChartData = dtChartData[,
     .SD[Frame %in% sample(unique(Frame), min(length(unique(Frame)), 10))],
     Cluster
    ]
-   
+
    if ( F ) {
-         
+
       dtChartData[,
          X := X - X[Player == 'Ball'],
          Frame
       ]
-      
+
       dtChartData[,
          Y := Y - Y[Player == 'Ball'],
          Frame
       ]
-      
+
    }
-   
+
    dtChartDataHull = dtChartData[,
      .SD[chull(X,Y)],
      list(Player, Cluster)
    ]
-   
-   
-   
-   
-   
+
+
+
+
+
    setorder(
       dtChartDataOccurrence,
       ClusterGroup,
       Cluster
    )
-   
+
    dtChartDataOccurrence = dtChartDataOccurrence[(c(1:HowManyAtATime) + ((iPart-1) * HowManyAtATime))]
    dtChartData = dtChartData[Cluster %in% dtChartDataOccurrence[, Cluster]]
-   
+
 
    p1 = ggplot(
      dtChartData
    )
-   
+
    p1 = fAddPitchLines(p1, cLineColour = '#aaaaaa', cPitchColour = NA)
-   
-   p1 = p1 + 
+
+   p1 = p1 +
      # geom_hline(yintercept = 0) +
      # geom_vline(xintercept = 0) +
      # geom_polygon(
@@ -665,7 +954,7 @@ for ( iPart in 1:4 ) {
      #    ),
      #    fill = NA,
      #    alpha = 0.1
-     #  ) + 
+     #  ) +
       # geom_point(
       #   aes(
       #     x = X,
@@ -693,7 +982,7 @@ for ( iPart in 1:4 ) {
       #   aes(
       #     x = X,
       #     y = Y
-      #     
+      #
       #   ),
       #   size = 4
       # ) +
@@ -742,14 +1031,14 @@ for ( iPart in 1:4 ) {
       # facet_grid(Player~Cluster) +
       scale_colour_discrete(guide = F) +
       facet_wrap(~ClusterGroup.Cluster, nrow = 3) +
-      geom_blank() + 
+      geom_blank() +
       coord_fixed() +
       labs(
          title = paste0('Positions of the ', cTeam, ' players and ball in game ', cGameName,' while the ', dtAttackingTeam[Frame %in% viTrackingFrames, AttackingTeam[1]], ' team is attacking - ', iPart),
          caption = 'by @thecomeonman',
          subtitle = 'Each box shows the average position of the players or the ball in the cluster.'
       )
-   
+
    print(p1)
 
 }
@@ -762,7 +1051,7 @@ Note: This section hasn't been updated for the new clusters so the example clust
 
 - They seem to either play in a 4-4-1-1 / 4-4-2, see clusters 4, 5, 7, 8
 
-- Or they switch to a back three sometimes with the two CBs and either the LB or the RCM, see clusters 1, 2, 3 
+- Or they switch to a back three sometimes with the two CBs and either the LB or the RCM, see clusters 1, 2, 3
 
 - The LCM is more involved further up the field than the RCM, see clusters 2, 3, 9
 
@@ -779,7 +1068,7 @@ Note: This section hasn't been updated for the new clusters so the example clust
 - The LW, and the RB as well, try to provide width, see clusters 1, 3, 6a
 
 - Clusters 16, 30 might be corners
- 
+
 ## Exploring a cluster in more detail
 
 ```{r DetailedLookAtOneCluster, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
@@ -801,49 +1090,49 @@ dtChartData = merge(
 
 dtChartData[Player != 'Ball', Player := Label]
 dtChartData[, Label := NULL]
-   
+
 if ( F ) {
-   
-   dtChartDataOccurrence = dtChartData[, 
+
+   dtChartDataOccurrence = dtChartData[,
       list(
-         Instance = length(unique(Instance)), 
+         Instance = length(unique(Instance)),
          .N
-      ), 
+      ),
       list(
          ClusterGroup, Cluster, ClusterGroup.Cluster
       )
-   ][, 
+   ][,
       list(ClusterGroup, Cluster, ClusterGroup.Cluster, Time_pct = round(N / sum(N), 2) * 100)
    ]
-   
+
    dtChartDataOccurrence[, Cluster2 := 1 + .N - rank(Instance, ties.method = 'random')]
-   
+
    dtChartData = merge(
       dtChartData,
       dtChartDataOccurrence[, list(Cluster, Cluster2)],
       'Cluster'
    )
-   
+
    dtChartData[, Cluster := Cluster2]
    dtChartData[, Cluster2 := NULL]
    dtChartDataOccurrence[, Cluster := Cluster2]
    dtChartDataOccurrence[, Cluster2 := NULL]
-   
+
 }
 
 
 if ( F ) {
-      
+
    dtChartData[,
       X := X - X[Player == 'Ball'],
       Frame
    ]
-   
+
    dtChartData[,
       Y := Y - Y[Player == 'Ball'],
       Frame
    ]
-   
+
 }
 
 dtChartDataHull = dtChartData[,
@@ -851,9 +1140,9 @@ dtChartDataHull = dtChartData[,
   list(Player, Cluster)
 ]
 
-   
-   
-   
+
+
+
 p1 = ggplot(
   dtChartData
 )
@@ -895,7 +1184,7 @@ p1 = p1 +
    ) +
    facet_wrap(~Player) +
    scale_colour_discrete(guide = F) +
-   geom_blank() + 
+   geom_blank() +
    coord_fixed() +
    labs(
       title = paste0('Detailed positions of the ', cTeam, ' players and ball in cluster ', iSelectedCluster),
@@ -914,7 +1203,7 @@ cSelectedPlayer = dtPlayerLabels[Label == 'RB', Player]
 
 dtChartData = merge(
   lData$dtTrackingData[Player %in% c(cSelectedPlayer, 'Ball')][Tag %in% c('Ball', cTeam)],
-  dtClusterResults[!is.na(Cluster)][, list(Frame, ClusterGroup, Cluster, ClusterGroup.Cluster, Instance)],
+  dtClusterResults[!is.na(Cluster)][, list(Frame, ClusterGroup, Cluster, ClusterGroup.Cluster)],
   'Frame'
 )
 
@@ -927,9 +1216,9 @@ dtChartData = merge(
 
 dtChartData[Player != 'Ball', Player := Label]
 dtChartData[, Label := NULL]
-   
-   
-   
+
+
+
 p1 = ggplot(
   dtChartData
 )
@@ -937,7 +1226,7 @@ p1 = ggplot(
 p1 = fAddPitchLines(p1, cLineColour = '#aaaaaa', cPitchColour = NA)
 
 p1 = p1 +
-   geom_path(
+   geom_point(
      data = dtChartData[
         Player != 'Ball'
      ][
@@ -946,48 +1235,23 @@ p1 = p1 +
      ],
      aes(
        x = X,
-       y = Y,
-       group = paste(Instance, Cluster, Player)
+       y = Y
      ),
      size = 0.2,
      color = 'red'
    ) +
    geom_point(
      data = dtChartData[
-        Player != 'Ball'
-     ][
-     ][, .SD[which.max(Frame)], list(Player, Cluster, Instance)],
-     aes(
-       x = X,
-       y = Y
-     ),
-     color = 'red',
-     size = 0.2
-   ) +
-   geom_path(
-     data = dtChartData[
         Player == 'Ball'
      ][
      ][,
-         # list(X = mean(X), Y = mean(Y)), list(Cluster, Player = gsub(Player, pattern = '.*Player', replacement = ''))
+        # list(X = mean(X), Y = mean(Y)), list(Cluster, Player = gsub(Player, pattern = '.*Player', replacement = ''))
      ],
-     aes(
-       x = X,
-       y = Y,
-       group = paste(Instance, Cluster, Player)
-     ),
-     size = 0.2
-   ) +
-   geom_point(
-     data = dtChartData[
-        Player == 'Ball'
-     ][
-     ][, .SD[which.max(Frame)], list(Player, Cluster, Instance)],
      aes(
        x = X,
        y = Y
      ),
-     size = 0.2
+     size = 0.2,
    ) +
    # geom_polygon(
    #    data = dtChartDataHull,
@@ -1001,7 +1265,7 @@ p1 = p1 +
    # ) +
    facet_wrap(~ClusterGroup.Cluster, nrow = 6) +
    scale_colour_discrete(guide = F) +
-   geom_blank() + 
+   geom_blank() +
    coord_fixed() +
    labs(
       title = paste0('Detailed positions of ', dtPlayerLabels[Player == cSelectedPlayer, Label], ' and ball across clusters'),
@@ -1015,10 +1279,10 @@ print(p1)
 
 
 ## Cluster occurrence across the duration of the game
- 
+
 ```{r PrintingClusterGroupsAcrossTime, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 10}
 
-p1 = ggplot(dtClusterResults) + 
+p1 = ggplot(dtClusterResults) +
     geom_point(
         data = rbind(
           dtSubstitutions[, list(Frame, Tag, Event = 'Substitution')],
@@ -1026,7 +1290,7 @@ p1 = ggplot(dtClusterResults) +
           lData$dtTrackingData[, max(Frame), list(Tag, Player)][V1 != max(V1), list(Tag, Frame = V1, Event = 'Red card')]
       )[, list(Frame, Tag, Event, ClusterGroup = 'Events')],
       aes(x = Frame * 0.04 / 60, y = paste(Tag, Event))
-    ) +  
+    ) +
     geom_vline(
         data = rbind(
           dtSubstitutions[, list(Frame, Tag, Event = 'Substitution')],
@@ -1035,7 +1299,7 @@ p1 = ggplot(dtClusterResults) +
       )[, list(Frame, Tag, Event)],
       aes(xintercept = Frame * 0.04 / 60),
       alpha = 0.5
-    ) +  
+    ) +
     geom_hline(
         data = rbind(
           dtSubstitutions[, list(Frame, Tag, Event = 'Substitution')],
@@ -1046,8 +1310,8 @@ p1 = ggplot(dtClusterResults) +
       alpha = 0.5
     )
 
-p1 = p1 + 
-   geom_point(aes(x = Frame * 0.04 / 60, y = factor(Cluster), color = factor(ClusterGroup)))  + 
+p1 = p1 +
+   geom_point(aes(x = Frame * 0.04 / 60, y = factor(Cluster), color = factor(ClusterGroup)))  +
    geom_line(aes(x = Frame * 0.04 / 60, y = factor(Cluster), color = factor(ClusterGroup)), size = 0.1) +
    facet_grid(ClusterGroup~., scales = 'free', space = 'free')
 
@@ -1062,41 +1326,32 @@ p1 = p1 +
 print(p1)
 
 ```
- 
+
 There are interesting patterns in terms of how clusters occur at various points in the game. After pretty much each significant event, you can notice a change in the patterns of clusters exhibited.
 
 
 ## The flow between clusters
- 
- 
+
+
 ```{r PrintingClusterTransitions, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 10}
 
-dtTransitions = dtClusterResults[, 
+dtTransitions = dtClusterResults[,
    list(
-      ClusterGroup = head(ClusterGroup, -1), 
+      ClusterGroup = head(ClusterGroup, -1),
       Cluster = head(Cluster, -1),
-      Frame = head(Frame, -1), 
-      NextClusterGroup = tail(ClusterGroup, -1), 
-      NextCluster = tail(Cluster, -1),
-      NextFrame = tail(Frame, -1)
+      NextClusterGroup = tail(ClusterGroup, -1),
+      NextCluster = tail(Cluster, -1)
    )
 ]
 
-dtTransitions = dtTransitions[
-   Cluster != NextCluster
-][
-   NextFrame - Frame < 10
-][, 
-   .N, 
-   list(ClusterGroup, Cluster, NextClusterGroup, NextCluster)
-]
+dtTransitions = dtTransitions[Cluster != NextCluster][, .N, list(ClusterGroup, Cluster, NextClusterGroup, NextCluster)]
 
 
 dtTransitionsGroup = dtTransitions[, list( N = sum(N) ), list(ClusterGroup, NextClusterGroup)]
 
 dtTransitionsGroup[, N_pct := N / sum(N), list(ClusterGroup)]
 
-p1 = ggplot(dtTransitionsGroup) + 
+p1 = ggplot(dtTransitionsGroup) +
    geom_tile(aes(x = factor(ClusterGroup), y = factor(NextClusterGroup), alpha = N_pct), fill = 'red') +
    coord_fixed() +
    scale_alpha_continuous(range = c(0, 1), limits = c(0, NA)) +
@@ -1110,7 +1365,7 @@ print(p1)
 
 dtTransitions[, N_pct := N / sum(N), list(Cluster)]
 
-p1 = ggplot(dtTransitions) + 
+p1 = ggplot(dtTransitions) +
    geom_tile(aes(x = factor(Cluster), y = factor(NextCluster), alpha = N_pct), fill = 'red') +
    facet_grid(NextClusterGroup~ClusterGroup, scales = 'free', space = 'free') +
    scale_alpha_continuous(range = c(0, 1), limits = c(0, NA)) +
@@ -1123,5 +1378,11 @@ p1 = ggplot(dtTransitions) +
 print(p1)
 
 ```
- 
+
 The team doesn't randomly move between clusters, there are some transitions that occur far more frequently than others.
+
+
+
+
+
+# Type 2
