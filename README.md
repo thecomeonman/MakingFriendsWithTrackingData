@@ -9,6 +9,8 @@ Also get the tracking data, recently made public as part of the Friends
 of Tracking sessions by Metrica from here -
 <a href="https://github.com/metrica-sports/sample-data" class="uri">https://github.com/metrica-sports/sample-data</a>
 
+Other ongoing experiments with tracking data can be viewed in the other markdown files in the repo which will eventually be moved to a different repo when they are old enough to move out.
+
 The code
 --------
 
