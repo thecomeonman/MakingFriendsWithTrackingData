@@ -47,7 +47,8 @@ The six clusters broadly capture situations which are in place when the
 ball is in various parts of the field. Clusters 1 and 3 capture the two
 sides in the defensive half. Clusters 2 and 5 capture the two sides in
 the offensive half. Cluster 4 is when the ball is in midfield. Cluster 6
-is sort of inbetween clusters 4 and 5.
+looks like the ball is in similar areas as cluster 4 so the difference
+between the two might be interesting.
 
 Understanding clusters
 ----------------------
@@ -94,6 +95,9 @@ Exploring a cluster in more detail
 
 ![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/DetailedLookAtOneCluster-1.png)
 
+Exploring a player’s role in more detail
+----------------------------------------
+
 ![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/DetailedLookAtOnePlayer-1.png)
 
 Cluster occurrence across the duration of the game
@@ -108,7 +112,7 @@ notice a change in the patterns of clusters exhibited.
 The flow between clusters
 -------------------------
 
-![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingClusterTransitions-1.png)![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingClusterTransitions-2.png)
+![](ClusteringPlayerBallCoordinates_files/figure-markdown_strict/PrintingClusterTransitions2-1.png)
 
 The team doesn’t randomly move between clusters, there are some
 transitions that occur far more frequently than others.

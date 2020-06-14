@@ -24,15 +24,68 @@ This is a very very very WIP post.
 
 ```{r Setup, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
 
+rm(list = ls())
+
 library(CodaBonito)
 library(data.table)
 library(ggplot2)
 library(ggrepel)
+library(scales)
 library(zoo)
 library(clue)
+library(knitr)
 theme_set(theme_bw(12))
+opts_chunk$set(
+   dev.args=list(
+      bg="transparent"
+   ),
+   dpi = 300
+)
 
-rm(list = ls())
+theme_pitch_override = function() {
+      
+   # http://www.sthda.com/english/wiki/ggplot2-themes-and-background-colors-the-3-elements
+   
+   theme(
+      plot.background = element_rect(fill = 'black'), 
+      panel.background = element_rect(fill = 'black', color = '#666666'),
+      legend.title = element_text(color = 'white'),
+      legend.text = element_text(color = 'white', size = rel(0.8)),
+      plot.title = element_text(color = 'white', size = rel(1.2)),
+      strip.background = element_rect(fill = "#666666", colour = NA),
+      strip.text = element_text(colour = "#cccccc", size = rel(0.8)),
+
+   )
+   
+}
+ 
+theme_non_pitch_override = function() {
+   theme_pitch_override() +
+   theme(
+      panel.grid.major = element_line(colour = "#333333"), 
+      panel.grid.minor = element_line(colour = "#333333", size = 0.25), 
+      axis.line = element_blank(), 
+      axis.text = element_text(
+         size = rel(0.8), 
+         colour = "#cccccc"
+      ),
+      axis.text.x = element_text(
+         vjust = 1
+      ),
+      axis.text.y = element_text(
+         hjust = 1
+      ),
+      axis.ticks = element_line(colour = "#111111"), 
+      axis.title.x = element_text(
+         colour = "#cccccc"
+      ), 
+      axis.title.y = element_text(
+         angle = 90, 
+         colour = "#cccccc"
+      )
+   )
+   
+}
 
 # Instructions
 # You would have downloaded and saved the data from Github at some location on
@@ -57,6 +110,14 @@ dtPlayerLabels = data.table(
    )
 )
 
+dtPlayerLabels[,
+   Label := factor(
+      Label,
+      levels = c('GK', 'RB','RCB','LCB','LB','RW','RCM','LCM','LW','SS','CF'),
+      ordered = T
+   )
+]
+
 ```
 
 ```{r DataLoading, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
@@ -72,7 +133,8 @@ lData = fParseTrackingDataBothTeams(
    nUpperLimitSpeed = nUpperLimitSpeed
 )
 
-dtSubstitutions = lData$dtTrackingData[, 
+dtPlayerInOuts = lData$dtTrackingData[
+   Tag != 'Ball', 
    list(
       StartFrame = min(Frame), 
       EndFrame = max(Frame)
@@ -83,8 +145,8 @@ dtSubstitutions = lData$dtTrackingData[,
 ]
 
 dtSubstitutions = merge(
-    dtSubstitutions[, list(Tag, PlayerOut = Player, Frame = EndFrame)],
-    dtSubstitutions[, list(Tag, PlayerIn = Player, Frame = StartFrame)],
+    dtPlayerInOuts[, list(Tag, PlayerOut = Player, Frame = EndFrame)],
+    dtPlayerInOuts[, list(Tag, PlayerIn = Player, Frame = StartFrame)],
     c('Tag', 'Frame')
 )
 
@@ -148,7 +210,12 @@ dtPlayerLabels[,
 
 viTrackingFrames = lData$dtTrackingData[Player == 'Ball', unique(Frame)]
 viTrackingFrames = viTrackingFrames[viTrackingFrames %% 3 == 0]
-
+viTrackingFrames = viTrackingFrames[
+   viTrackingFrames < dtPlayerInOuts[
+      Tag == cTeam, 
+      min(StartFrame[StartFrame != 1])
+   ]
+]
 # inferring which team was in control of the ball
 dtAttackingTeam = merge(
    lData$dtEventsData[
@@ -367,6 +434,12 @@ if ( T ) {
                            
                            dtDistances[, Tag := cTagToCapture]
                            
+                           dtDistances = dtDistances[
+                              Frame.x %in% viTrackingFrames
+                           ][
+                              Frame.y %in% viTrackingFrames
+                           ]
+                           
                         } else {
                            
                            dtDistances = data.table()
@@ -408,6 +481,9 @@ if ( T ) {
       
    }
    
+   
+   dtDistances = dtDistances[Frame.x %in% viTrackingFrames]
+   dtDistances = dtDistances[, c(intersect(colnames(dtDistances), viTrackingFrames), 'Frame.x'), with = F]
    dtDistances = dtDistances[order(as.integer(Frame.x))]
    
    setcolorder(
@@ -500,7 +576,7 @@ if ( T ) {
       ClusterGroup = cutree(hcModel, k = 6), 
       Cluster = cutree(hcModel, k = 48)
    )[,
-      ClusterGroup.Cluster := paste0(ClusterGroup, '.', Cluster)
+      ClusterGroup.Cluster := paste0(ClusterGroup, '.', formatC(Cluster, width = 2, flag = '0'))
    ]
    
    setorder(
@@ -522,7 +598,19 @@ if ( T ) {
 
 ## Understanding cluster groups
  
-```{r PrintingClusterGroups, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 10}
+```{r PrintingClusterGroups, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 10, fig.height = 6}
+
+dtClusterGroupOccurrence = dtClusterResults[, 
+   list(
+      Instance = length(unique(Instance)), 
+      .N
+   ), 
+   list(
+      ClusterGroup
+   )
+][, 
+   list(ClusterGroup, Instance, Time_pct = round(N / sum(N), 2) * 100)
+]
 
 p1 = ggplot(
    merge(
@@ -530,31 +618,58 @@ p1 = ggplot(
       lData$dtTrackingData[Tag == 'Ball', list(Frame, X, Y)],
       'Frame'
    )
-)
-p1 = fAddPitchLines(p1, cLineColour = '#aaaaaa', cPitchColour = NA)
-p1 = p1+ 
-   geom_point(aes(x = X, y = Y, color = factor(ClusterGroup))) +
+) +
+   geom_pitch(cLineColour = '#333333',cPitchColour = 'black') + 
+   geom_point(
+      aes(x = X, y = Y),
+      color = 'white',
+      size = 0.1
+   ) +
    labs(
       title = 'Where the ball was in each cluster'
-   )
+   ) +
+   scale_color_discrete(guide = F)
+   
+vcFacetLabels = dtClusterGroupOccurrence[, paste0('Cluster group ', ClusterGroup,'\n', Time_pct,'% of the total time, ', Instance, ' instance(s)')]
+names(vcFacetLabels) = as.character(dtClusterGroupOccurrence[, ClusterGroup])
 
 p1 = p1 + 
-   facet_wrap(~ClusterGroup)
-
-# to do add events to timeline
+   # geom_text(
+   #    data = dtClusterGroupOccurrence,
+   #    aes(
+   #       x = 0,
+   #       y = -5,
+   #       label = paste0(Time_pct,'% of the total time, ', Instance, ' instance(s)')
+   #    ),
+   #    size = 4,
+   #    hjust = 0,
+   #    vjust = 1,
+   #    color = 'white'
+   # ) +
+   facet_wrap(
+      ~ClusterGroup, 
+      labeller = labeller(
+         ClusterGroup = vcFacetLabels
+      )
+   ) +
+   theme_pitch() + 
+   theme_pitch_override()
 
 print(p1)
+
 ```
+
  
 The six clusters broadly capture situations which are in place when the ball is in various parts of the field. 
 Clusters 1 and 3 capture the two sides in the defensive half. Clusters 2 and 5 capture the two sides in the 
-offensive half. Cluster 4 is when the ball is in midfield. Cluster 6 is sort of inbetween clusters 4 and 5.
+offensive half. Cluster 4 is when the ball is in midfield. Cluster 6 looks like the ball is in similar areas as
+cluster 4 so the difference between the two might be interesting.
 
 ## Understanding clusters
 
 Diving into the smaller clusters -
  
-```{r PrintingRresultsAttack, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 10}
+```{r PrintingRresultsAttack, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 10, fig.height = 12}
 # plot 12 clusters at a time in 4 batches
 
 HowManyAtATime = 12
@@ -645,14 +760,13 @@ for ( iPart in 1:4 ) {
    dtChartDataOccurrence = dtChartDataOccurrence[(c(1:HowManyAtATime) + ((iPart-1) * HowManyAtATime))]
    dtChartData = dtChartData[Cluster %in% dtChartDataOccurrence[, Cluster]]
    
+   vcFacetLabels = dtChartDataOccurrence[, paste0('Cluster ', ClusterGroup.Cluster,'\n', Time_pct,'% of the total time, ', Instance, ' instance(s)')]
+   names(vcFacetLabels) = as.character(dtChartDataOccurrence[, ClusterGroup.Cluster])
 
    p1 = ggplot(
      dtChartData
-   )
-   
-   p1 = fAddPitchLines(p1, cLineColour = '#aaaaaa', cPitchColour = NA)
-   
-   p1 = p1 + 
+   ) + 
+      geom_pitch(cLineColour = '#333333', cPitchColour = 'black') + 
      # geom_hline(yintercept = 0) +
      # geom_vline(xintercept = 0) +
      # geom_polygon(
@@ -716,6 +830,7 @@ for ( iPart in 1:4 ) {
           x = X,
           y = Y
         ),
+        color = 'red',
         size = 2
       ) +
       geom_text(
@@ -727,28 +842,38 @@ for ( iPart in 1:4 ) {
           y = Y,
           label = Player
         ),
+        color = 'red',
         size = 3
       ) +
-      geom_text(
-         data = dtChartDataOccurrence,
-         aes(
-            x = 0,
-            y = -5,
-            label = paste0(Time_pct,'% of the total time, ', Instance, ' instance(s)')
-         ),
-         size = 4,
-         hjust = 0
-      ) +
+      # geom_text(
+      #    data = dtChartDataOccurrence,
+      #    aes(
+      #       x = 0,
+      #       y = -5,
+      #       label = paste0(Time_pct,'% of the total time, ', Instance, ' instance(s)')
+      #    ),
+      #    color = 'red',
+      #    size = 4,
+      #    hjust = 0
+      # ) +
       # facet_grid(Player~Cluster) +
       scale_colour_discrete(guide = F) +
-      facet_wrap(~ClusterGroup.Cluster, nrow = 3) +
+      facet_wrap(
+         ~ClusterGroup.Cluster, 
+         nrow = 4, 
+         labeller = labeller(
+            ClusterGroup.Cluster = vcFacetLabels
+         )
+      ) +
       geom_blank() + 
       coord_fixed() +
       labs(
-         title = paste0('Positions of the ', cTeam, ' players and ball in game ', cGameName,' while the ', dtAttackingTeam[Frame %in% viTrackingFrames, AttackingTeam[1]], ' team is attacking - ', iPart),
-         caption = 'by @thecomeonman',
+         # title = paste0('Positions of the ', cTeam, ' players and ball in game ', cGameName,' while the ', dtAttackingTeam[Frame %in% viTrackingFrames, AttackingTeam[1]], ' team is attacking - ', iPart),
+         title = paste0('Average positions of the players and ball in each cluster - ', iPart),
          subtitle = 'Each box shows the average position of the players or the ball in the cluster.'
-      )
+      ) +
+      theme_pitch() + 
+      theme_pitch_override()
    
    print(p1)
 
@@ -782,7 +907,7 @@ Note: This section hasn't been updated for the new clusters so the example clust
  
 ## Exploring a cluster in more detail
 
-```{r DetailedLookAtOneCluster, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+```{r DetailedLookAtOneCluster, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 10, results = 'hide'}
 
 iSelectedCluster = dtClusterResults[!is.na(Cluster), .N, Cluster][which.max(N), Cluster]
 
@@ -813,7 +938,7 @@ if ( F ) {
          ClusterGroup, Cluster, ClusterGroup.Cluster
       )
    ][, 
-      list(ClusterGroup, Cluster, ClusterGroup.Cluster, Time_pct = round(N / sum(N), 2) * 100)
+      list(ClusterGroup, Cluster, ClusterGroup.Cluster, Instance, Time_pct = round(N / sum(N), 2) * 100)
    ]
    
    dtChartDataOccurrence[, Cluster2 := 1 + .N - rank(Instance, ties.method = 'random')]
@@ -856,11 +981,8 @@ dtChartDataHull = dtChartData[,
    
 p1 = ggplot(
   dtChartData
-)
-
-p1 = fAddPitchLines(p1, cLineColour = '#aaaaaa', cPitchColour = NA)
-
-p1 = p1 +
+) +
+   geom_pitch(cLineColour = '#333333',cPitchColour = 'black') + 
    # geom_point(
    #   aes(
    #     x = X,
@@ -873,7 +995,8 @@ p1 = p1 +
        x = X,
        y = Y,
        group = paste(Instance, Cluster, Player)
-     )
+     ),
+     color = 'white'
    ) +
    geom_point(
      data = dtChartData[
@@ -891,14 +1014,17 @@ p1 = p1 +
      aes(
        x = X,
        y = Y
-     )
+     ),
+     color = 'white'
    ) +
    facet_wrap(~Player) +
    scale_colour_discrete(guide = F) +
    geom_blank() + 
+   theme_pitch() + 
+   theme_pitch_override() +
    coord_fixed() +
    labs(
-      title = paste0('Detailed positions of the ', cTeam, ' players and ball in cluster ', iSelectedCluster),
+      title = paste0('Detailed positions of the ', cTeam, ' players and ball in cluster ', dtClusterResults[Cluster == iSelectedCluster, ClusterGroup.Cluster[1]]),
       subtitle = 'Mean position in red, all positions during the game in that cluster in black.'
    )
 
@@ -908,7 +1034,9 @@ print(p1)
 ```
 
 
-```{r DetailedLookAtOnePlayer, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 8, results = 'hide'}
+## Exploring a player's role in more detail
+
+```{r DetailedLookAtOnePlayer, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 17, results = 'hide'}
 
 cSelectedPlayer = dtPlayerLabels[Label == 'RB', Player]
 
@@ -932,11 +1060,8 @@ dtChartData[, Label := NULL]
    
 p1 = ggplot(
   dtChartData
-)
-
-p1 = fAddPitchLines(p1, cLineColour = '#aaaaaa', cPitchColour = NA)
-
-p1 = p1 +
+) + geom_pitch(cLineColour = '#aaaaaa', cPitchColour = NA) +
+   geom_pitch(cLineColour = '#333333',cPitchColour = 'black') + 
    geom_path(
      data = dtChartData[
         Player != 'Ball'
@@ -976,7 +1101,8 @@ p1 = p1 +
        y = Y,
        group = paste(Instance, Cluster, Player)
      ),
-     size = 0.2
+     size = 0.2,
+     color = 'white'
    ) +
    geom_point(
      data = dtChartData[
@@ -987,7 +1113,8 @@ p1 = p1 +
        x = X,
        y = Y
      ),
-     size = 0.2
+     size = 0.2,
+     color = 'white'
    ) +
    # geom_polygon(
    #    data = dtChartDataHull,
@@ -999,10 +1126,12 @@ p1 = p1 +
    #    fill = NA,
    #    color = 'black'
    # ) +
-   facet_wrap(~ClusterGroup.Cluster, nrow = 6) +
+   facet_wrap(~ClusterGroup.Cluster, nrow = 8) +
    scale_colour_discrete(guide = F) +
    geom_blank() + 
    coord_fixed() +
+   theme_pitch() + 
+   theme_pitch_override() +
    labs(
       title = paste0('Detailed positions of ', dtPlayerLabels[Player == cSelectedPlayer, Label], ' and ball across clusters'),
       caption = 'by @thecomeonman',
@@ -1018,46 +1147,92 @@ print(p1)
  
 ```{r PrintingClusterGroupsAcrossTime, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 10}
 
-p1 = ggplot(dtClusterResults) + 
-    geom_point(
-        data = rbind(
-          dtSubstitutions[, list(Frame, Tag, Event = 'Substitution')],
-          lData$dtEventsData[grepl(Subtype, pattern = 'GOAL$'), list(Frame = StartFrame, Tag = Team, Event = paste0(' Goal'))],
-          lData$dtTrackingData[, max(Frame), list(Tag, Player)][V1 != max(V1), list(Tag, Frame = V1, Event = 'Red card')]
-      )[, list(Frame, Tag, Event, ClusterGroup = 'Events')],
-      aes(x = Frame * 0.04 / 60, y = paste(Tag, Event))
-    ) +  
+dtSignificantEvents = rbind(
+    dtSubstitutions[, list(Frame, Tag, Event = 'Substitution')],
+    lData$dtEventsData[grepl(Subtype, pattern = 'GOAL$'), list(Frame = StartFrame, Tag = Team, Event = paste0(' Goal'))],
+    lData$dtTrackingData[, max(Frame), list(Tag, Player)][V1 != max(V1), list(Tag, Frame = V1, Event = 'Red card')],
+    lData$dtTrackingData[, list(Frame = max(Frame), Event = 'End of half', Tag = ''), Period][Period < max(Period), list(Tag, Frame, Event)]
+)[, 
+   list(Frame, Tag, Event, ClusterGroup = 'Events')
+]
+
+# vcAxisLabels = dtSignificantEvents[, paste0(Tag, ifelse(Tag == '','','\n'), Event)]
+# names(vcAxisLabels) = dtSignificantEvents[, Frame * 0.04 / 60]
+
+p1 = ggplot(dtClusterResults) +  
     geom_vline(
-        data = rbind(
-          dtSubstitutions[, list(Frame, Tag, Event = 'Substitution')],
-          lData$dtEventsData[grepl(Subtype, pattern = 'GOAL$'), list(Frame = StartFrame, Tag = Team, Event = paste0(' Goal'))],
-          lData$dtTrackingData[, max(Frame), list(Tag, Player)][V1 != max(V1), list(Tag, Frame = V1, Event = 'Red card')]
-      )[, list(Frame, Tag, Event)],
+      data = dtSignificantEvents[, list(Frame)],
       aes(xintercept = Frame * 0.04 / 60),
+      color = 'white',
       alpha = 0.5
-    ) +  
-    geom_hline(
-        data = rbind(
-          dtSubstitutions[, list(Frame, Tag, Event = 'Substitution')],
-          lData$dtEventsData[grepl(Subtype, pattern = 'GOAL$'), list(Frame = StartFrame, Tag = Team, Event = paste0(' Goal'))],
-          lData$dtTrackingData[, max(Frame), list(Tag, Player)][V1 != max(V1), list(Tag, Frame = V1, Event = 'Red card')]
-      )[, list(Frame, Tag, Event)],
-      aes(yintercept = paste(Tag, Event)),
-      alpha = 0.5
-    )
+    ) 
+
+if ( F ) {
+   
+   p1 = p1 +  
+      geom_text(
+         data = dtSignificantEvents,
+         aes(
+            x = Frame * 0.04 / 60,
+            y = 'Event',
+            label = paste0(Tag, ifelse(Tag == '','','\n'), Event)
+         ),
+         color = 'white',
+         alpha = 0.5
+      )
+   
+}
+
+if ( F ) {
+   
+   p1 = p1 +
+       geom_point(
+           data = dtSignificantEvents,
+         aes(x = Frame * 0.04 / 60, y = paste(Tag, Event)),
+         color = 'white'
+       ) +  
+       geom_hline(
+           data = dtSignificantEvents,
+         aes(yintercept = paste(Tag, Event)),
+         alpha = 0.5,
+         color = 'white'
+       )
+}
 
 p1 = p1 + 
-   geom_point(aes(x = Frame * 0.04 / 60, y = factor(Cluster), color = factor(ClusterGroup)))  + 
-   geom_line(aes(x = Frame * 0.04 / 60, y = factor(Cluster), color = factor(ClusterGroup)), size = 0.1) +
-   facet_grid(ClusterGroup~., scales = 'free', space = 'free')
+   geom_point(
+      aes(x = Frame * 0.04 / 60, y = factor(Cluster), color = factor(ClusterGroup))
+   )  + 
+   geom_line(
+      aes(x = Frame * 0.04 / 60, y = factor(Cluster), color = factor(ClusterGroup)), size = 0.1
+   ) +
+   facet_grid(
+      ClusterGroup~., 
+      scales = 'free', 
+      space = 'free',
+      labeller = label_both
+   )
 
 p1 = p1 +
    labs(
       title = 'Cluster occurrence across the duration of the game',
       x = 'Time',
-      y = 'Cluster / Event'
+      y = 'Cluster'
    ) +
-   scale_color_discrete(guide = FALSE)
+   scale_color_discrete(guide = FALSE) +
+   theme_non_pitch_override() +
+   scale_x_continuous(
+      breaks = c(
+         dtSignificantEvents[, Frame * 0.04 / 60],
+         c(15, 30),
+         c(15, 30) + dtSignificantEvents[Event == 'End of half'][, Frame * 0.04 / 60]
+      ),
+      labels = c(
+         dtSignificantEvents[, paste0('\n', Tag, ifelse(Tag == '','','\n'), Event)],
+         paste0(c(15, 30), '\''),
+         paste0(c(15, 30), '\'')
+      )
+   )
 
 print(p1)
 
@@ -1069,8 +1244,8 @@ There are interesting patterns in terms of how clusters occur at various points 
 ## The flow between clusters
  
  
-```{r PrintingClusterTransitions, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 10}
-
+```{r PrintingClusterTransitions1, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 7}
+   
 dtTransitions = dtClusterResults[, 
    list(
       ClusterGroup = head(ClusterGroup, -1), 
@@ -1091,37 +1266,326 @@ dtTransitions = dtTransitions[
    list(ClusterGroup, Cluster, NextClusterGroup, NextCluster)
 ]
 
+   
+if ( F ) {
 
-dtTransitionsGroup = dtTransitions[, list( N = sum(N) ), list(ClusterGroup, NextClusterGroup)]
-
-dtTransitionsGroup[, N_pct := N / sum(N), list(ClusterGroup)]
-
-p1 = ggplot(dtTransitionsGroup) + 
-   geom_tile(aes(x = factor(ClusterGroup), y = factor(NextClusterGroup), alpha = N_pct), fill = 'red') +
-   coord_fixed() +
-   scale_alpha_continuous(range = c(0, 1), limits = c(0, NA)) +
-   labs(
-      title = 'What cluster group occurs next',
-      y = 'Next cluster group',
-      x = 'Current cluster group'
+   dtTransitionsGroup = dtTransitions[
+      ClusterGroup != NextClusterGroup,
+      list( N = sum(N) ), 
+      list(ClusterGroup, NextClusterGroup)
+   ]
+   
+   dtTransitionsGroup = merge(
+      dtTransitionsGroup,
+      dtTransitionsGroup[, list(NextClusterGroup = dtTransitionsGroup[, unique(ClusterGroup)]), ClusterGroup],
+      c('ClusterGroup','NextClusterGroup'),
+      all = T
    )
+   
+   dtTransitionsGroup = dtTransitionsGroup[ClusterGroup != NextClusterGroup]
+   dtTransitionsGroup[is.na(N), N := 0]
+   dtTransitionsGroup[, N_pct := N / sum(N), list(ClusterGroup)]
+   dtTransitionsGroup[is.na(N_pct), N_pct := 0]
+   
+   dtTransitionsGroup = merge(
+      dtTransitionsGroup,
+      merge(
+         dtClusterResults[!is.na(Cluster)],
+         lData$dtTrackingData[Tag == 'Ball', list(Frame, X, Y)],
+         'Frame'
+      )[,
+         list(
+            X1 = mean(X),
+            Y1 = mean(Y)
+         ),
+         list(
+            ClusterGroup = ClusterGroup
+         )
+      ],
+      'ClusterGroup'
+   )
+   
+   dtTransitionsGroup = merge(
+      dtTransitionsGroup,
+      merge(
+         dtClusterResults[!is.na(Cluster)],
+         lData$dtTrackingData[Tag == 'Ball', list(Frame, X, Y)],
+         'Frame'
+      )[,
+         list(
+            X2 = mean(X),
+            Y2 = mean(Y)
+         ),
+         list(
+            NextClusterGroup = ClusterGroup
+         )
+      ],
+      'NextClusterGroup'
+   )
+   
+   if ( F ) {
+         
+      p1 = ggplot(dtTransitionsGroup) + 
+         geom_tile(aes(x = factor(ClusterGroup), y = factor(NextClusterGroup), alpha = N_pct), fill = 'red') +
+         coord_fixed() +
+         scale_alpha_continuous(range = c(0, 1), limits = c(0, NA)) +
+         labs(
+            title = 'What cluster group occurs next',
+            y = 'Next cluster group',
+            x = 'Current cluster group'
+         )
+   
+   } else {
+      
+      p1 = ggplot(dtTransitionsGroup) + 
+         geom_pitch(cLineColour = '#333333', cPitchColour = 'black') + 
+         geom_point(
+            aes(
+               x = X2,
+               y = Y2,
+               alpha = N_pct
+            ),
+            size = 20,
+            color = 'white',
+            fill = 'red',
+            shape = 21
+         ) + 
+         geom_point(
+            aes(
+               x = X1,
+               y = Y1
+            ),
+            color = 'white'
+         ) + 
+         geom_segment(
+            aes(
+               x = X1,
+               y = Y1,
+               xend = X2,
+               yend = Y2
+            ),
+            color = 'white'
+         ) + 
+         scale_color_continuous(limits = c(0, 1), low = 'white', high = 'red', name = NULL) +
+         scale_alpha_continuous(range = c(0, 1), labels = percent, name = NULL) +
+         facet_wrap(~ClusterGroup) + 
+         theme_pitch() + 
+         theme_pitch_override() +
+         labs(
+            title = 'Movement between cluster groups'
+         )
+         
+         
+      if ( F ) {
+         
+         ggplot(dtTransitionsGroup) + 
+            geom_pitch() + 
+            geom_segment(
+               aes(
+                  x = X1,
+                  y = Y1,
+                  xend = X2,
+                  yend = Y2,
+                  # color = N_pct
+               )
+            ) + 
+            geom_point(
+               aes(
+                  x = X2,
+                  y = Y2,
+                  size = N_pct
+               )
+            ) + 
+            scale_color_continuous(limits = c(0, 1), low = 'black', high = 'red') +
+            scale_size_continuous(range = c(0, 10), limits = c(0, 1)) +
+            facet_wrap(~ClusterGroup)
+         
+      }
+   
+   }
+   
+   print(p1)
 
-print(p1)
+}
 
+```
+
+
+```{r PrintingClusterTransitions2, cache=FALSE, echo=FALSE, warning=FALSE, message=FALSE, fig.width = 15, fig.height = 7}
+
+
+
+
+dtTransitions = merge(
+   dtTransitions,
+   data.table(expand.grid(
+       Cluster = dtClusterResults[, unique(Cluster)],
+       NextCluster = dtClusterResults[, unique(Cluster)]
+   )),
+   c('Cluster','NextCluster'),
+   all = T
+)
+
+dtTransitions[, c('ClusterGroup','NextClusterGroup','ClusterGroup.Cluster','NextClusterGroup.Cluster') := NULL]
+
+dtTransitions = merge(
+   dtTransitions,
+   dtClusterResults[, .SD[1], list(Cluster, ClusterGroup)][, list(Cluster, ClusterGroup, ClusterGroup.Cluster)],
+   'Cluster'
+)
+dtTransitions = merge(
+   dtTransitions,
+   dtClusterResults[, .SD[1], list(Cluster, ClusterGroup)][, list(NextCluster = Cluster, NextClusterGroup = ClusterGroup, NextClusterGroup.Cluster = ClusterGroup.Cluster)],
+   'NextCluster'
+)
+
+dtTransitions = dtTransitions[Cluster != NextCluster]
+dtTransitions[is.na(N), N := 0]
 dtTransitions[, N_pct := N / sum(N), list(Cluster)]
 
+dtTransitions = merge(
+   dtTransitions,
+   merge(
+      dtClusterResults[!is.na(Cluster)],
+      lData$dtTrackingData[Tag == 'Ball', list(Frame, X, Y)],
+      'Frame'
+   )[,
+      list(
+         X1 = mean(X),
+         Y1 = mean(Y)
+      ),
+      list(
+         Cluster = Cluster
+      )
+   ],
+   'Cluster'
+)
+
+dtTransitions = merge(
+   dtTransitions,
+   merge(
+      dtClusterResults[!is.na(Cluster)],
+      lData$dtTrackingData[Tag == 'Ball', list(Frame, X, Y)],
+      'Frame'
+   )[,
+      list(
+         X2 = mean(X),
+         Y2 = mean(Y)
+      ),
+      list(
+         NextCluster = Cluster
+      )
+   ],
+   'NextCluster'
+)
+
+dtTransitions[is.na(N_pct), N_pct := 0]
+
 p1 = ggplot(dtTransitions) + 
-   geom_tile(aes(x = factor(Cluster), y = factor(NextCluster), alpha = N_pct), fill = 'red') +
-   facet_grid(NextClusterGroup~ClusterGroup, scales = 'free', space = 'free') +
-   scale_alpha_continuous(range = c(0, 1), limits = c(0, NA)) +
+   geom_pitch(cLineColour = '#333333',cPitchColour = 'black') + 
+   geom_segment(
+       aes(x = X1, y = Y1, xend = X2, yend = Y2, alpha = N), 
+       arrow = arrow(), 
+       color = 'red'
+   ) +
+   geom_point(
+      data = merge(
+         dtClusterResults[, 
+            list(
+               Frame, 
+               Cluster, 
+               ClusterGroup, 
+               Instance
+            )
+         ], 
+         lData$dtTrackingData[
+            Tag == 'Ball', 
+            list(X, Y, Frame)
+         ],
+         c('Frame')
+      )[, 
+         list(
+            X = mean(X), 
+            Y = mean(Y), 
+            Instance = unique(Instance)
+         ), 
+         list(
+            ClusterGroup,
+            Cluster
+         )
+      ], 
+      aes(
+         x = X, 
+         y = Y, 
+         size = Instance
+      ), 
+      fill = 'red',
+      color = 'black',
+      shape = 21
+   ) +
+    geom_point(
+       data = dtTransitions[, list(N = sum(N)), list(X2, Y2, NextCluster, ClusterGroup)][N > 0], 
+      aes(
+         x = X2, 
+         y = Y2, 
+         size = N
+      ), 
+      fill = 'white',
+      color = 'black',
+      shape = 21
+   ) +
+   scale_alpha_continuous(range = c(0, 1), name = 'Transitions\nbetween\nclusters') +
+   scale_size_continuous(range = c(0, 5), limits = c(0, NA), name = 'Instances\nof this\ncluster') +
+   theme_pitch() + 
+   theme_pitch_override() +
    labs(
-      title = 'What cluster occurs next',
-      y = 'Next cluster',
-      x = 'Current cluster'
-   )
+      title = 'Movement between clusters'
+   ) + 
+   facet_wrap(~ClusterGroup)
 
 print(p1)
 
+if ( F ) {
+   
+   p1 = ggplot(dtTransitions) + 
+      geom_pitch(cLineColour = '#333333',cPitchColour = 'black') + 
+      geom_point(
+         aes(
+            x = X2,
+            y = Y2,
+            alpha = N_pct
+         ),
+         size = 5,
+         color = 'white',
+         fill = 'red',
+         shape = 21
+      ) + 
+      geom_point(
+         aes(
+            x = X1,
+            y = Y1
+         ),
+         color = 'white'
+      ) + 
+      # geom_segment(
+      #    aes(
+      #       x = X1,
+      #       y = Y1,
+      #       xend = X2,
+      #       yend = Y2
+      #    ),
+      #    color = 'white'
+      # ) + 
+      scale_color_continuous(limits = c(0, 1), low = 'white', high = 'red', name = NULL) +
+      scale_alpha_continuous(range = c(0, 1), labels = percent, name = NULL) +
+      facet_wrap(~ClusterGroup.Cluster, nrow = 6) + 
+      theme_pitch() + 
+      theme_pitch_override()
+     
+   print(p1)
+
+}
 ```
  
 The team doesn't randomly move between clusters, there are some transitions that occur far more frequently than others.
+ 
